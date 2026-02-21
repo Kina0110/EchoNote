@@ -18,6 +18,11 @@ let recordingFileExtension = '';
 let recordingSessionId = '';
 let pendingRecordingSessionId = ''; // set before upload, cleared after transcript download
 
+// Tag state
+let activeTagFilter = null;
+let allTags = {};
+let allTranscripts = [];
+
 const SPEAKER_COLORS = [
   '#58a6ff', '#f78166', '#7ee787', '#d2a8ff',
   '#ff7b72', '#79c0ff', '#ffa657', '#a5d6ff',
@@ -26,7 +31,7 @@ const SPEAKER_COLORS = [
 // === Init ===
 document.addEventListener('DOMContentLoaded', () => {
   checkHealth();
-  loadTranscripts();
+  loadTags().then(() => loadTranscripts());
   setupDragDrop();
   setupFileInput();
   setupKeyboardShortcut();
@@ -192,52 +197,318 @@ async function uploadFile(file) {
   }
 }
 
+// === Tags ===
+async function loadTags() {
+  try {
+    const res = await fetch('/api/tags');
+    allTags = await res.json();
+  } catch (e) {
+    allTags = {};
+  }
+}
+
+function getTagStyle(tagName) {
+  const color = allTags[tagName] || '#8b949e';
+  const r = parseInt(color.slice(1, 3), 16);
+  const g = parseInt(color.slice(3, 5), 16);
+  const b = parseInt(color.slice(5, 7), 16);
+  return { color: color, background: `rgba(${r}, ${g}, ${b}, 0.15)` };
+}
+
+function renderTagFilterBar() {
+  const bar = document.getElementById('tag-filter-bar');
+  const chips = document.getElementById('tag-filter-chips');
+  const copyBar = document.getElementById('copy-all-bar');
+
+  const tagSet = new Set();
+  allTranscripts.forEach(t => (t.tags || []).forEach(tag => tagSet.add(tag)));
+
+  if (tagSet.size === 0) {
+    bar.style.display = 'none';
+    return;
+  }
+
+  bar.style.display = 'block';
+  const sortedTags = [...tagSet].sort();
+  chips.innerHTML = sortedTags.map(tag => {
+    const s = getTagStyle(tag);
+    const isActive = activeTagFilter === tag;
+    return `<span class="tag-filter-chip ${isActive ? 'active' : ''}" style="background:${s.background};color:${s.color}" onclick="filterByTag('${escapeAttr(tag)}')">${escapeHtml(tag)}</span>`;
+  }).join('');
+
+  if (activeTagFilter) {
+    const count = allTranscripts.filter(t => (t.tags || []).includes(activeTagFilter)).length;
+    document.getElementById('copy-all-count').textContent = `${count} transcript${count !== 1 ? 's' : ''} tagged "${activeTagFilter}"`;
+    copyBar.style.display = 'flex';
+  } else {
+    copyBar.style.display = 'none';
+  }
+}
+
+function filterByTag(tagName) {
+  if (activeTagFilter === tagName) {
+    activeTagFilter = null;
+  } else {
+    activeTagFilter = tagName;
+  }
+  renderTranscriptList();
+  renderTagFilterBar();
+}
+
+async function addTag(transcriptId, tagName) {
+  try {
+    const res = await fetch(`/api/transcripts/${transcriptId}/tags`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ add: [tagName] }),
+    });
+    if (!res.ok) throw new Error('Failed to add tag');
+    const data = await res.json();
+    Object.assign(allTags, data.tags_map);
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+}
+
+async function removeTag(transcriptId, tagName) {
+  try {
+    const res = await fetch(`/api/transcripts/${transcriptId}/tags`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ remove: [tagName] }),
+    });
+    if (!res.ok) throw new Error('Failed to remove tag');
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+}
+
+function refreshAfterTagChange() {
+  loadTags().then(() => loadTranscripts());
+  if (currentTranscript && document.getElementById('view-transcript').classList.contains('active')) {
+    openTranscript(currentTranscript.id);
+  }
+}
+
+async function showTagDialog(transcriptId) {
+  let transcript;
+  try {
+    const res = await fetch(`/api/transcripts/${transcriptId}`);
+    transcript = await res.json();
+  } catch (e) {
+    toast('Failed to load transcript', 'error');
+    return;
+  }
+
+  const currentTags = transcript.tags || [];
+  const overlay = document.createElement('div');
+  overlay.className = 'confirm-overlay';
+  overlay.innerHTML = `
+    <div class="tag-dialog">
+      <h3>Manage Tags</h3>
+      <div class="tag-dialog-current" id="dialog-current-tags">
+        ${currentTags.map(tag => {
+          const s = getTagStyle(tag);
+          return `<span class="tag-chip" style="background:${s.background};color:${s.color}">${escapeHtml(tag)}<button class="tag-remove" data-tag="${escapeAttr(tag)}">&times;</button></span>`;
+        }).join('')}
+      </div>
+      <div class="tag-input-wrapper">
+        <input type="text" class="tag-input" id="tag-input" placeholder="Type a tag name..." autocomplete="off">
+        <div class="tag-suggestions" id="tag-suggestions" style="display:none;"></div>
+      </div>
+      <div class="tag-dialog-footer">
+        <button class="btn-secondary" id="tag-dialog-close">Done</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) { overlay.remove(); refreshAfterTagChange(); }
+  });
+
+  document.getElementById('tag-dialog-close').addEventListener('click', () => {
+    overlay.remove(); refreshAfterTagChange();
+  });
+
+  overlay.querySelectorAll('.tag-remove').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const tag = btn.dataset.tag;
+      await removeTag(transcriptId, tag);
+      btn.closest('.tag-chip').remove();
+    });
+  });
+
+  const input = document.getElementById('tag-input');
+  const suggestionsEl = document.getElementById('tag-suggestions');
+
+  input.addEventListener('input', () => {
+    const val = input.value.trim().toLowerCase();
+    if (!val) { suggestionsEl.style.display = 'none'; return; }
+
+    const dialogCurrentTags = [...overlay.querySelectorAll('.tag-chip')].map(
+      el => el.textContent.replace('\u00d7', '').trim()
+    );
+    const matches = Object.keys(allTags).filter(t =>
+      t.toLowerCase().includes(val) && !dialogCurrentTags.includes(t)
+    );
+
+    if (matches.length === 0) {
+      suggestionsEl.innerHTML = `<div class="tag-suggestion" data-tag="${escapeAttr(input.value.trim())}">Create "<strong>${escapeHtml(input.value.trim())}</strong>"</div>`;
+    } else {
+      suggestionsEl.innerHTML = matches.map(tag => {
+        const s = getTagStyle(tag);
+        return `<div class="tag-suggestion" data-tag="${escapeAttr(tag)}"><span class="tag-suggestion-dot" style="background:${s.color}"></span>${escapeHtml(tag)}</div>`;
+      }).join('');
+    }
+    suggestionsEl.style.display = 'block';
+  });
+
+  function addChipToDialog(tag) {
+    const s = getTagStyle(tag);
+    const chip = document.createElement('span');
+    chip.className = 'tag-chip';
+    chip.style.background = s.background;
+    chip.style.color = s.color;
+    chip.innerHTML = `${escapeHtml(tag)}<button class="tag-remove" data-tag="${escapeAttr(tag)}">&times;</button>`;
+    chip.querySelector('.tag-remove').addEventListener('click', async () => {
+      await removeTag(transcriptId, tag);
+      chip.remove();
+    });
+    document.getElementById('dialog-current-tags').appendChild(chip);
+  }
+
+  suggestionsEl.addEventListener('click', async (e) => {
+    const el = e.target.closest('.tag-suggestion');
+    if (!el) return;
+    const tag = el.dataset.tag;
+    await addTag(transcriptId, tag);
+    addChipToDialog(tag);
+    input.value = '';
+    suggestionsEl.style.display = 'none';
+  });
+
+  input.addEventListener('keydown', async (e) => {
+    if (e.key === 'Enter' && input.value.trim()) {
+      e.preventDefault();
+      const tag = input.value.trim();
+      await addTag(transcriptId, tag);
+      addChipToDialog(tag);
+      input.value = '';
+      suggestionsEl.style.display = 'none';
+    }
+    if (e.key === 'Escape') { overlay.remove(); refreshAfterTagChange(); }
+  });
+
+  input.focus();
+}
+
+async function copyAllByTag() {
+  if (!activeTagFilter) return;
+  try {
+    const res = await fetch(`/api/transcripts/copy-by-tag?tag=${encodeURIComponent(activeTagFilter)}`);
+    const text = await res.text();
+    await navigator.clipboard.writeText(text);
+    toast('All matching transcripts copied!', 'success');
+  } catch (e) {
+    toast('Failed to copy: ' + e.message, 'error');
+  }
+}
+
+function renderTranscriptTags() {
+  const container = document.getElementById('tag-chips');
+  const tags = currentTranscript.tags || [];
+  container.innerHTML = tags.map(tag => {
+    const s = getTagStyle(tag);
+    return `<span class="tag-chip" style="background:${s.background};color:${s.color}">${escapeHtml(tag)}<button class="tag-remove" onclick="event.stopPropagation(); removeTagAndRefresh('${currentTranscript.id}', '${escapeAttr(tag)}')">&times;</button></span>`;
+  }).join('');
+}
+
+async function removeTagAndRefresh(transcriptId, tagName) {
+  await removeTag(transcriptId, tagName);
+  try {
+    const res = await fetch(`/api/transcripts/${transcriptId}`);
+    currentTranscript = await res.json();
+    renderTranscriptTags();
+  } catch (e) {
+    toast('Failed to refresh', 'error');
+  }
+}
+
 // === Transcript List ===
 async function loadTranscripts() {
   try {
     const res = await fetch('/api/transcripts');
-    const list = await res.json();
-    const container = document.getElementById('transcripts-container');
-    const empty = document.getElementById('no-transcripts');
-
-    if (list.length === 0) {
-      container.innerHTML = '';
-      empty.style.display = 'block';
-      return;
-    }
-
-    empty.style.display = 'none';
-    container.innerHTML = list.map(t => {
-      const date = new Date(t.created_at).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
-      const dur = formatDuration(t.duration_seconds);
-      const summaryHtml = t.summary ? `<div class="card-summary">${escapeHtml(t.summary)}</div>` : '';
-      return `
-        <div class="transcript-card" onclick="openTranscript('${t.id}')">
-          <div class="card-info">
-            <div class="card-filename">${escapeHtml(t.filename)}</div>
-            <div class="card-meta">
-              <span>${date}</span>
-              <span class="meta-sep">&middot;</span>
-              <span>${dur}</span>
-              <span class="meta-sep">&middot;</span>
-              <span>${t.num_speakers} speaker${t.num_speakers !== 1 ? 's' : ''}</span>
-            </div>
-            ${summaryHtml}
-          </div>
-          <div class="card-actions">
-            <button class="btn-delete" onclick="event.stopPropagation(); confirmDelete('${t.id}', '${escapeHtml(t.filename)}')" title="Delete">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <polyline points="3 6 5 6 21 6"/>
-                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-              </svg>
-            </button>
-          </div>
-        </div>
-      `;
-    }).join('');
+    allTranscripts = await res.json();
+    renderTranscriptList();
+    renderTagFilterBar();
   } catch (e) {
     // Silently fail on list load
   }
+}
+
+function renderTranscriptList() {
+  const container = document.getElementById('transcripts-container');
+  const empty = document.getElementById('no-transcripts');
+
+  let list = allTranscripts;
+  if (activeTagFilter) {
+    list = list.filter(t => (t.tags || []).includes(activeTagFilter));
+  }
+
+  if (allTranscripts.length === 0) {
+    container.innerHTML = '';
+    empty.style.display = 'block';
+    return;
+  }
+
+  if (list.length === 0 && activeTagFilter) {
+    container.innerHTML = '';
+    empty.textContent = `No transcripts tagged "${activeTagFilter}".`;
+    empty.style.display = 'block';
+    return;
+  }
+
+  empty.style.display = 'none';
+  container.innerHTML = list.map(t => {
+    const date = new Date(t.created_at).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+    const dur = formatDuration(t.duration_seconds);
+    const summaryHtml = t.summary ? `<div class="card-summary">${escapeHtml(t.summary)}</div>` : '';
+
+    const tags = t.tags || [];
+    let tagsHtml = `<div class="card-tags">`;
+    tagsHtml += tags.map(tag => {
+      const s = getTagStyle(tag);
+      return `<span class="card-tag-chip" style="background:${s.background};color:${s.color}" onclick="event.stopPropagation(); filterByTag('${escapeAttr(tag)}')">${escapeHtml(tag)}</span>`;
+    }).join('');
+    tagsHtml += `<span class="card-tag-chip" style="background:var(--bg-tertiary);color:var(--text-muted);border:1px dashed var(--border);" onclick="event.stopPropagation(); showTagDialog('${t.id}')">+</span>`;
+    tagsHtml += `</div>`;
+
+    return `
+      <div class="transcript-card" onclick="openTranscript('${t.id}')">
+        <div class="card-info">
+          <div class="card-filename">${escapeHtml(t.filename)}</div>
+          <div class="card-meta">
+            <span>${date}</span>
+            <span class="meta-sep">&middot;</span>
+            <span>${dur}</span>
+            <span class="meta-sep">&middot;</span>
+            <span>${t.num_speakers} speaker${t.num_speakers !== 1 ? 's' : ''}</span>
+          </div>
+          ${summaryHtml}
+          ${tagsHtml}
+        </div>
+        <div class="card-actions">
+          <button class="btn-delete" onclick="event.stopPropagation(); confirmDelete('${t.id}', '${escapeHtml(t.filename)}')" title="Delete">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="3 6 5 6 21 6"/>
+              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+    `;
+  }).join('');
 }
 
 async function openTranscript(id) {
@@ -297,6 +568,7 @@ function showTranscript(transcript) {
   summaryEl.style.display = transcript.summary ? '' : 'none';
 
   renderSpeakers();
+  renderTranscriptTags();
   renderUtterances();
   setupAudioPlayer(transcript);
 

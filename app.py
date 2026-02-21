@@ -25,6 +25,7 @@ UPLOADS_DIR = BASE_DIR / "uploads"
 TRANSCRIPTS_DIR = BASE_DIR / "transcripts"
 AUDIO_DIR = BASE_DIR / "audio"
 STATIC_DIR = BASE_DIR / "static"
+TAGS_FILE = BASE_DIR / "tags.json"
 
 UPLOADS_DIR.mkdir(exist_ok=True)
 TRANSCRIPTS_DIR.mkdir(exist_ok=True)
@@ -43,6 +44,11 @@ STARTING_CREDIT = 200.0
 SPEAKER_COLORS = [
     "#58a6ff", "#f78166", "#7ee787", "#d2a8ff",
     "#ff7b72", "#79c0ff", "#ffa657", "#a5d6ff",
+]
+
+TAG_COLORS = [
+    "#e6b450", "#e06c9f", "#56d4bc", "#c49bff", "#f0883e",
+    "#63bfdb", "#e66767", "#8ddb8c", "#b8a9c9", "#d4a76a",
 ]
 
 app = FastAPI(title="Voice Transcriber")
@@ -194,6 +200,18 @@ def save_transcript(transcript: dict) -> None:
     path = TRANSCRIPTS_DIR / f"{transcript['id']}.json"
     with open(path, "w") as f:
         json.dump(transcript, f, indent=2)
+
+
+def load_tags() -> dict:
+    if TAGS_FILE.exists():
+        with open(TAGS_FILE) as f:
+            return json.load(f)
+    return {}
+
+
+def save_tags(tags: dict) -> None:
+    with open(TAGS_FILE, "w") as f:
+        json.dump(tags, f, indent=2)
 
 
 # --- API Endpoints ---
@@ -385,10 +403,58 @@ async def list_transcripts():
                     "duration_seconds": data.get("duration_seconds", 0),
                     "num_speakers": len(data.get("speakers", {})),
                     "summary": data.get("summary", ""),
+                    "tags": data.get("tags", []),
                 })
         except (json.JSONDecodeError, KeyError):
             continue
     return transcripts
+
+
+@app.get("/api/tags")
+async def get_tags():
+    return load_tags()
+
+
+@app.get("/api/transcripts/copy-by-tag")
+async def copy_by_tag(tag: str = Query(..., min_length=1)):
+    matching = []
+    for f in sorted(TRANSCRIPTS_DIR.glob("*.json"), key=lambda p: p.stat().st_mtime):
+        try:
+            with open(f) as fh:
+                data = json.load(fh)
+            if tag in data.get("tags", []):
+                matching.append(data)
+        except (json.JSONDecodeError, KeyError):
+            continue
+
+    if not matching:
+        return PlainTextResponse("No transcripts found with this tag.")
+
+    matching.sort(key=lambda t: t.get("created_at", ""))
+
+    lines = [
+        f'Below are {len(matching)} meeting transcripts tagged "{tag}". '
+        "Please analyze them together and provide:",
+        "",
+        "1. A summary of each meeting (2-3 sentences each)",
+        "2. Common themes and topics across all meetings",
+        "3. All action items mentioned, with who is responsible",
+        "4. Follow-up items and open questions that still need resolution",
+        "5. Key decisions that were made",
+        "",
+        "=" * 60,
+        "",
+    ]
+
+    for i, transcript in enumerate(matching, 1):
+        lines.append(f"--- MEETING {i} of {len(matching)} ---")
+        lines.append("")
+        lines.append(generate_copy_text(transcript))
+        lines.append("")
+        lines.append("=" * 60)
+        lines.append("")
+
+    return PlainTextResponse("\n".join(lines))
 
 
 @app.get("/api/transcripts/{transcript_id}")
@@ -436,6 +502,39 @@ async def rename_speakers(transcript_id: str, request: Request):
     transcript["full_text"] = generate_full_text(transcript["utterances"], transcript["speakers"])
     save_transcript(transcript)
     return transcript
+
+
+@app.patch("/api/transcripts/{transcript_id}/tags")
+async def update_tags(transcript_id: str, request: Request):
+    body = await request.json()
+    transcript = load_transcript(transcript_id)
+    tags_map = load_tags()
+    current_tags = transcript.get("tags", [])
+
+    for tag in body.get("add", []):
+        tag = tag.strip()
+        if not tag or tag in current_tags:
+            continue
+        current_tags.append(tag)
+        if tag not in tags_map:
+            used_colors = set(tags_map.values())
+            assigned = False
+            for color in TAG_COLORS:
+                if color not in used_colors:
+                    tags_map[tag] = color
+                    assigned = True
+                    break
+            if not assigned:
+                tags_map[tag] = TAG_COLORS[len(tags_map) % len(TAG_COLORS)]
+
+    for tag in body.get("remove", []):
+        if tag in current_tags:
+            current_tags.remove(tag)
+
+    transcript["tags"] = current_tags
+    save_transcript(transcript)
+    save_tags(tags_map)
+    return {"tags": current_tags, "tags_map": tags_map}
 
 
 @app.get("/api/transcripts/{transcript_id}/copytext")

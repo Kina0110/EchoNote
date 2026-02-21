@@ -6,7 +6,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>Transcriber</title>
-  <link rel="stylesheet" href="/static/style.css?v=7">
+  <link rel="stylesheet" href="/static/style.css?v=8">
 </head>
 <body>
   <!-- Toast container -->
@@ -47,6 +47,21 @@
 
     <!-- Global search results -->
     <div id="search-results" class="search-results" style="display:none;"></div>
+
+    <!-- Tag filter bar -->
+    <div id="tag-filter-bar" class="tag-filter-bar" style="display:none;">
+      <div class="tag-filter-chips" id="tag-filter-chips"></div>
+      <div id="copy-all-bar" class="copy-all-bar" style="display:none;">
+        <button class="btn-copy-all" onclick="copyAllByTag()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+          </svg>
+          Copy All for ChatGPT
+        </button>
+        <span class="copy-all-count" id="copy-all-count"></span>
+      </div>
+    </div>
 
     <!-- Setup warning -->
     <div id="setup-warning" class="setup-warning" style="display:none;"></div>
@@ -162,6 +177,17 @@
       <div class="speaker-legend" id="speaker-legend"></div>
     </div>
 
+    <!-- Tags -->
+    <div class="tag-section" id="tag-section">
+      <div class="tag-chips" id="tag-chips"></div>
+      <button class="btn-add-tag" onclick="showTagDialog(currentTranscript.id)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+          <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+        </svg>
+        Add Tag
+      </button>
+    </div>
+
     <!-- In-transcript search -->
     <div class="transcript-search-bar">
       <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -246,6 +272,6 @@
     </div>
   </div>
 
-  <script src="/static/app.js?v=7"></script>
+  <script src="/static/app.js?v=8"></script>
 </body>
 </html>
