@@ -1,0 +1,16 @@
+# Environment & secrets
+.env
+venv/
+
+# User data
+transcripts/
+audio/
+uploads/
+
+# IDE / OS
+.DS_Store
+__pycache__/
+*.pyc
+
+# Claude
+.claude/

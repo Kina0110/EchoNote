@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>Transcriber</title>
+  <link rel="stylesheet" href="/static/style.css?v=7">
+</head>
+<body>
+  <!-- Toast container -->
+  <div id="toast-container"></div>
+
+  <!-- Home / Upload View -->
+  <div id="view-home" class="view active">
+    <header class="app-header">
+      <div class="header-left">
+        <h1 class="app-title">
+          <svg class="app-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+            <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+            <line x1="12" y1="19" x2="12" y2="23"/>
+            <line x1="8" y1="23" x2="16" y2="23"/>
+          </svg>
+          Transcriber
+        </h1>
+      </div>
+      <div class="header-right">
+        <button class="btn-icon" onclick="showCosts()" title="Usage & Costs">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="12" y1="1" x2="12" y2="23"/>
+            <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- Global search -->
+    <div class="search-bar">
+      <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+      </svg>
+      <input type="text" id="global-search" placeholder="Search all transcripts..." oninput="onGlobalSearch(this.value)">
+      <button class="search-clear" id="global-search-clear" onclick="clearGlobalSearch()" style="display:none;">&times;</button>
+    </div>
+
+    <!-- Global search results -->
+    <div id="search-results" class="search-results" style="display:none;"></div>
+
+    <!-- Setup warning -->
+    <div id="setup-warning" class="setup-warning" style="display:none;"></div>
+
+    <!-- Upload zone -->
+    <div id="upload-zone" class="upload-zone" onclick="document.getElementById('file-input').click()">
+      <input type="file" id="file-input" accept=".mp4,.mov,.avi,.mkv,.webm,.mp3,.wav,.m4a,.ogg,.flac,.aac,.wma" style="display:none">
+      <div class="upload-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+          <polyline points="17 8 12 3 7 8"/>
+          <line x1="12" y1="3" x2="12" y2="15"/>
+        </svg>
+      </div>
+      <p class="upload-title">Drop your file here or tap to upload</p>
+      <p class="upload-subtitle">MP4, MOV, MP3, WAV, M4A, and more &middot; Max 2GB</p>
+      <div class="upload-divider"><span>or</span></div>
+      <button class="btn-record-start" onclick="event.stopPropagation(); startRecording()">
+        <svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="6"/></svg>
+        Record Audio
+      </button>
+    </div>
+
+    <!-- Recording UI -->
+    <div id="recording-ui" class="recording-ui" style="display:none;">
+      <div class="recording-indicator">
+        <span class="recording-dot"></span>
+        <span class="recording-label">Recording</span>
+      </div>
+      <div class="recording-timer" id="recording-timer">00:00</div>
+      <div class="recording-backup-status" id="recording-backup-status"></div>
+      <div class="recording-actions">
+        <button class="btn-record-stop" onclick="stopRecording()">
+          <svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+          Stop &amp; Transcribe
+        </button>
+      </div>
+    </div>
+
+    <!-- Upload progress -->
+    <div id="upload-progress" class="upload-progress" style="display:none;">
+      <div class="progress-status">
+        <div class="spinner"></div>
+        <span id="progress-text">Uploading file...</span>
+      </div>
+      <div class="progress-bar-container">
+        <div id="progress-bar" class="progress-bar"></div>
+      </div>
+    </div>
+
+    <!-- Past transcripts -->
+    <div id="transcript-list" class="transcript-list">
+      <h2 class="section-title">Past Transcripts</h2>
+      <div id="transcripts-container"></div>
+      <p id="no-transcripts" class="empty-state" style="display:none;">No transcripts yet. Upload a file to get started.</p>
+    </div>
+  </div>
+
+  <!-- Transcript Detail View -->
+  <div id="view-transcript" class="view">
+    <!-- Sticky action bar -->
+    <div class="action-bar">
+      <button class="btn-back" onclick="showHome()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polyline points="15 18 9 12 15 6"/>
+        </svg>
+        Back
+      </button>
+      <div class="action-buttons">
+        <button class="btn-copy" onclick="copyForChatGPT()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+          </svg>
+          Copy for ChatGPT
+        </button>
+        <button class="btn-secondary" onclick="exportTxt()">Export .txt</button>
+        <button class="btn-secondary" onclick="exportSrt()">Export .srt</button>
+      </div>
+    </div>
+
+    <!-- Audio player -->
+    <div id="audio-player-section" class="audio-player-section" style="display:none;">
+      <audio id="audio-player" preload="auto"></audio>
+      <div class="player-controls">
+        <button class="player-btn" id="play-btn" onclick="togglePlayback()">
+          <svg id="play-icon" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          <svg id="pause-icon" viewBox="0 0 24 24" fill="currentColor" style="display:none;"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+        </button>
+        <div class="player-time" id="player-current">0:00</div>
+        <div class="player-bar-container" id="player-bar-container">
+          <div class="player-bar-bg">
+            <div class="player-bar-fill" id="player-bar-fill"></div>
+          </div>
+        </div>
+        <div class="player-time" id="player-total">0:00</div>
+      </div>
+    </div>
+
+    <!-- Transcript header -->
+    <div class="transcript-header">
+      <h2 id="t-filename" class="t-filename"></h2>
+      <div class="t-meta">
+        <span id="t-date"></span>
+        <span class="meta-sep">&middot;</span>
+        <span id="t-duration"></span>
+      </div>
+      <div id="t-summary" class="t-summary"></div>
+    </div>
+
+    <!-- Speaker legend -->
+    <div class="speaker-section">
+      <div class="speaker-legend" id="speaker-legend"></div>
+    </div>
+
+    <!-- In-transcript search -->
+    <div class="transcript-search-bar">
+      <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+      </svg>
+      <input type="text" id="transcript-search" placeholder="Search in transcript..." oninput="onTranscriptSearch(this.value)">
+      <div class="transcript-search-nav" id="transcript-search-nav" style="display:none;">
+        <span id="match-counter" class="match-counter"></span>
+        <button class="nav-btn" onclick="prevMatch()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="18 15 12 9 6 15"/></svg>
+        </button>
+        <button class="nav-btn" onclick="nextMatch()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+        </button>
+      </div>
+      <button class="search-clear" id="transcript-search-clear" onclick="clearTranscriptSearch()" style="display:none;">&times;</button>
+    </div>
+
+    <!-- Utterances -->
+    <div id="utterances" class="utterances"></div>
+  </div>
+
+  <!-- Cost Tracker View -->
+  <div id="view-costs" class="view">
+    <header class="app-header">
+      <div class="header-left">
+        <button class="btn-back" onclick="showHome()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="15 18 9 12 15 6"/>
+          </svg>
+          Back
+        </button>
+      </div>
+      <h1 class="page-title">Usage & Costs</h1>
+    </header>
+
+    <div class="costs-dashboard">
+      <div class="stats-cards">
+        <div class="stat-card">
+          <div class="stat-label">This Month</div>
+          <div class="stat-row">
+            <span id="stat-month-files">0</span> files
+            <span class="meta-sep">&middot;</span>
+            <span id="stat-month-min">0</span> min
+          </div>
+          <div class="stat-cost">~$<span id="stat-month-cost">0.00</span></div>
+          <div class="stat-breakdown">
+            <span>Deepgram: $<span id="stat-month-deepgram">0.00</span></span>
+            <span>Kimi AI: $<span id="stat-month-kimi">0.00</span></span>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">All Time</div>
+          <div class="stat-row">
+            <span id="stat-total-files">0</span> files
+            <span class="meta-sep">&middot;</span>
+            <span id="stat-total-min">0</span> min
+          </div>
+          <div class="stat-cost">~$<span id="stat-total-cost">0.00</span></div>
+          <div class="stat-breakdown">
+            <span>Deepgram: $<span id="stat-total-deepgram">0.00</span></span>
+            <span>Kimi AI: $<span id="stat-total-kimi">0.00</span></span>
+          </div>
+        </div>
+      </div>
+
+      <div class="credit-section">
+        <div class="credit-header">
+          <span>Deepgram Credit Remaining</span>
+          <span class="credit-amount">~$<span id="stat-credit">200.00</span></span>
+        </div>
+        <div class="credit-bar-container">
+          <div id="credit-bar" class="credit-bar" style="width:100%"></div>
+        </div>
+        <div id="credit-estimate" class="credit-estimate"></div>
+      </div>
+
+      <div class="per-file-section">
+        <h3>Per-File Breakdown</h3>
+        <div id="per-file-table" class="per-file-table"></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/app.js?v=7"></script>
+</body>
+</html>
