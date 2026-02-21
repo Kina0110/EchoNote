@@ -600,6 +600,24 @@ mark, .highlight {
   line-height: 1.5;
   margin-top: 8px;
 }
+.btn-generate-summary {
+  margin-top: 8px;
+  padding: 6px 14px;
+  font-size: 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+}
+.btn-generate-summary:hover {
+  background: var(--accent);
+  color: #fff;
+}
+.btn-generate-summary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
 
 .meta-sep {
   color: var(--text-muted);
@@ -706,6 +724,22 @@ mark, .highlight {
   white-space: nowrap;
   min-width: 36px;
 }
+.speed-btn {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 4px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  min-width: 38px;
+  white-space: nowrap;
+}
+.speed-btn:hover {
+  background: var(--accent);
+  color: #fff;
+}
 
 .player-bar-container {
   flex: 1;
@@ -790,6 +824,58 @@ mark, .highlight {
   font-size: 0.95rem;
   line-height: 1.6;
   color: var(--text);
+}
+
+.u-bookmark {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s;
+  flex-shrink: 0;
+  align-self: flex-start;
+  margin-top: 2px;
+}
+.utterance:hover .u-bookmark,
+.u-bookmark.active {
+  opacity: 1;
+}
+.u-bookmark.active {
+  color: var(--warning);
+}
+.u-bookmark:hover {
+  color: var(--warning);
+  opacity: 1;
+}
+
+.utterance.bookmarked {
+  border-left: 3px solid var(--warning);
+  padding-left: 1px;
+}
+
+.btn-bookmark-filter {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  transition: all 0.15s;
+  flex-shrink: 0;
+}
+.btn-bookmark-filter:hover {
+  color: var(--warning);
+  border-color: var(--warning);
+}
+.btn-bookmark-filter.active {
+  color: var(--warning);
+  border-color: var(--warning);
+  background: rgba(210, 169, 34, 0.1);
 }
 
 /* === Cost Tracker === */
