@@ -1,0 +1,1117 @@
+// === State ===
+let currentTranscript = null;
+let audioSyncRAF = null;
+let autoScrollEnabled = true;
+let globalSearchTimeout = null;
+let transcriptSearchMatches = [];
+let currentMatchIndex = -1;
+
+// Recording state
+let mediaRecorder = null;
+let recordedChunks = [];
+let recordingStartTime = null;
+let recordingTimerInterval = null;
+let recordingBackupInterval = null;
+let recordingBackupCounter = 0;
+let recordingMimeType = '';
+let recordingFileExtension = '';
+let recordingSessionId = '';
+let pendingRecordingSessionId = ''; // set before upload, cleared after transcript download
+
+const SPEAKER_COLORS = [
+  '#58a6ff', '#f78166', '#7ee787', '#d2a8ff',
+  '#ff7b72', '#79c0ff', '#ffa657', '#a5d6ff',
+];
+
+// === Init ===
+document.addEventListener('DOMContentLoaded', () => {
+  checkHealth();
+  loadTranscripts();
+  setupDragDrop();
+  setupFileInput();
+  setupKeyboardShortcut();
+});
+
+// === Health Check ===
+async function checkHealth() {
+  try {
+    const res = await fetch('/api/health');
+    const data = await res.json();
+    const warnings = [];
+    if (!data.ffmpeg) {
+      warnings.push('ffmpeg is not installed. Install it with: <code>brew install ffmpeg</code>');
+    }
+    if (!data.api_key) {
+      warnings.push('Deepgram API key not configured. Copy <code>.env.example</code> to <code>.env</code> and add your key.');
+    }
+    if (warnings.length > 0) {
+      const el = document.getElementById('setup-warning');
+      el.innerHTML = warnings.join('<br><br>');
+      el.style.display = 'block';
+    }
+  } catch (e) {
+    // Server not reachable - ignore
+  }
+}
+
+// === Drag & Drop ===
+function setupDragDrop() {
+  const zone = document.getElementById('upload-zone');
+
+  zone.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    zone.classList.add('dragover');
+  });
+
+  zone.addEventListener('dragleave', () => {
+    zone.classList.remove('dragover');
+  });
+
+  zone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    zone.classList.remove('dragover');
+    const files = e.dataTransfer.files;
+    if (files.length > 0) uploadFile(files[0]);
+  });
+}
+
+function setupFileInput() {
+  document.getElementById('file-input').addEventListener('change', (e) => {
+    if (e.target.files.length > 0) {
+      uploadFile(e.target.files[0]);
+      e.target.value = '';
+    }
+  });
+}
+
+function setupKeyboardShortcut() {
+  document.addEventListener('keydown', (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'c' && currentTranscript && document.getElementById('view-transcript').classList.contains('active')) {
+      // Only hijack Cmd+C if no text is selected
+      const sel = window.getSelection();
+      if (!sel || sel.isCollapsed) {
+        e.preventDefault();
+        copyForChatGPT();
+      }
+    }
+  });
+}
+
+// === Upload ===
+async function uploadFile(file) {
+  const zone = document.getElementById('upload-zone');
+  const progress = document.getElementById('upload-progress');
+  const progressText = document.getElementById('progress-text');
+  const progressBar = document.getElementById('progress-bar');
+
+  // Validate extension
+  const ext = '.' + file.name.split('.').pop().toLowerCase();
+  const allowed = ['.mp4', '.mov', '.avi', '.mkv', '.webm', '.mp3', '.wav', '.m4a', '.ogg', '.flac', '.aac', '.wma'];
+  if (!allowed.includes(ext)) {
+    toast(`Unsupported format. Supported: ${allowed.join(', ')}`, 'error');
+    return;
+  }
+
+  // Validate size
+  if (file.size > 2 * 1024 * 1024 * 1024) {
+    toast('File too large. Maximum size is 2GB.', 'error');
+    return;
+  }
+
+  zone.style.display = 'none';
+  progress.style.display = 'block';
+  progressText.textContent = 'Uploading file...';
+  progressBar.style.width = '0%';
+
+  const formData = new FormData();
+  formData.append('file', file);
+
+  try {
+    const xhr = new XMLHttpRequest();
+
+    xhr.upload.addEventListener('progress', (e) => {
+      if (e.lengthComputable) {
+        const pct = Math.round((e.loaded / e.total) * 100);
+        progressBar.style.width = pct + '%';
+        if (pct >= 100) {
+          progressText.textContent = 'Processing audio...';
+        }
+      }
+    });
+
+    const result = await new Promise((resolve, reject) => {
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          resolve(JSON.parse(xhr.responseText));
+        } else {
+          try {
+            const err = JSON.parse(xhr.responseText);
+            reject(new Error(err.detail || 'Upload failed'));
+          } catch {
+            reject(new Error('Upload failed'));
+          }
+        }
+      };
+      xhr.onerror = () => reject(new Error('Network error'));
+
+      // Show transcription status after upload completes
+      xhr.upload.addEventListener('loadend', () => {
+        progressText.textContent = 'Transcribing with AI...';
+        progressBar.style.width = '100%';
+      });
+
+      xhr.open('POST', '/api/transcribe');
+      xhr.send(formData);
+    });
+
+    progressText.textContent = 'Done!';
+    toast('Transcription complete!', 'success');
+
+    // Auto-download transcript text if this came from a recording
+    if (pendingRecordingSessionId) {
+      try {
+        const copyRes = await fetch(`/api/transcripts/${result.id}/copytext`);
+        const text = await copyRes.text();
+        downloadFile(text, 'rec-' + pendingRecordingSessionId + '-transcript.txt', 'text/plain');
+      } catch (e) { /* non-critical */ }
+      pendingRecordingSessionId = '';
+    }
+
+    // Brief pause to show "Done!" then navigate
+    await sleep(500);
+
+    progress.style.display = 'none';
+    zone.style.display = '';
+
+    showTranscript(result);
+    loadTranscripts(); // Refresh the list
+  } catch (e) {
+    toast(e.message, 'error');
+    progress.style.display = 'none';
+    zone.style.display = '';
+  }
+}
+
+// === Transcript List ===
+async function loadTranscripts() {
+  try {
+    const res = await fetch('/api/transcripts');
+    const list = await res.json();
+    const container = document.getElementById('transcripts-container');
+    const empty = document.getElementById('no-transcripts');
+
+    if (list.length === 0) {
+      container.innerHTML = '';
+      empty.style.display = 'block';
+      return;
+    }
+
+    empty.style.display = 'none';
+    container.innerHTML = list.map(t => {
+      const date = new Date(t.created_at).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+      const dur = formatDuration(t.duration_seconds);
+      const summaryHtml = t.summary ? `<div class="card-summary">${escapeHtml(t.summary)}</div>` : '';
+      return `
+        <div class="transcript-card" onclick="openTranscript('${t.id}')">
+          <div class="card-info">
+            <div class="card-filename">${escapeHtml(t.filename)}</div>
+            <div class="card-meta">
+              <span>${date}</span>
+              <span class="meta-sep">&middot;</span>
+              <span>${dur}</span>
+              <span class="meta-sep">&middot;</span>
+              <span>${t.num_speakers} speaker${t.num_speakers !== 1 ? 's' : ''}</span>
+            </div>
+            ${summaryHtml}
+          </div>
+          <div class="card-actions">
+            <button class="btn-delete" onclick="event.stopPropagation(); confirmDelete('${t.id}', '${escapeHtml(t.filename)}')" title="Delete">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="3 6 5 6 21 6"/>
+                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+      `;
+    }).join('');
+  } catch (e) {
+    // Silently fail on list load
+  }
+}
+
+async function openTranscript(id) {
+  try {
+    const res = await fetch(`/api/transcripts/${id}`);
+    if (!res.ok) throw new Error('Failed to load transcript');
+    const transcript = await res.json();
+    showTranscript(transcript);
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+}
+
+function confirmDelete(id, filename) {
+  const overlay = document.createElement('div');
+  overlay.className = 'confirm-overlay';
+  overlay.innerHTML = `
+    <div class="confirm-dialog">
+      <p>Delete transcript for <strong>${filename}</strong>?</p>
+      <div class="confirm-buttons">
+        <button class="btn-secondary" onclick="this.closest('.confirm-overlay').remove()">Cancel</button>
+        <button class="btn-danger" id="confirm-delete-btn">Delete</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) overlay.remove();
+  });
+
+  document.getElementById('confirm-delete-btn').addEventListener('click', async () => {
+    overlay.remove();
+    try {
+      const res = await fetch(`/api/transcripts/${id}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error('Delete failed');
+      toast('Transcript deleted', 'success');
+      loadTranscripts();
+    } catch (e) {
+      toast(e.message, 'error');
+    }
+  });
+}
+
+// === Transcript View ===
+function showTranscript(transcript) {
+  currentTranscript = transcript;
+
+  document.getElementById('t-filename').textContent = transcript.filename;
+  document.getElementById('t-date').textContent = new Date(transcript.created_at).toLocaleDateString('en-US', {
+    year: 'numeric', month: 'long', day: 'numeric'
+  });
+  document.getElementById('t-duration').textContent = formatDuration(transcript.duration_seconds);
+
+  const summaryEl = document.getElementById('t-summary');
+  summaryEl.textContent = transcript.summary || '';
+  summaryEl.style.display = transcript.summary ? '' : 'none';
+
+  renderSpeakers();
+  renderUtterances();
+  setupAudioPlayer(transcript);
+
+  switchView('view-transcript');
+}
+
+function renderSpeakers() {
+  const legend = document.getElementById('speaker-legend');
+  const speakers = Object.entries(currentTranscript.speakers);
+
+  legend.innerHTML = speakers.map(([key, displayName], i) => {
+    const color = SPEAKER_COLORS[i % SPEAKER_COLORS.length];
+    return `
+      <div class="speaker-chip" onclick="renameSpeaker('${escapeAttr(key)}', this)">
+        <span class="speaker-dot" style="background:${color}"></span>
+        <span class="speaker-label">${escapeHtml(displayName)}</span>
+      </div>
+    `;
+  }).join('');
+}
+
+function renderUtterances() {
+  const container = document.getElementById('utterances');
+  const speakers = Object.keys(currentTranscript.speakers);
+
+  container.innerHTML = currentTranscript.utterances.map((u, i) => {
+    const idx = speakers.indexOf(u.speaker);
+    const color = SPEAKER_COLORS[(idx >= 0 ? idx : 0) % SPEAKER_COLORS.length];
+    const displayName = currentTranscript.speakers[u.speaker] || u.speaker;
+    const ts = formatTimestamp(u.start);
+
+    return `
+      <div class="utterance" data-index="${i}" data-start="${u.start}" data-end="${u.end}" onclick="seekToUtterance(${u.start})">
+        <div class="u-timestamp">${ts}</div>
+        <div class="u-content">
+          <div class="u-speaker" style="color:${color}">${escapeHtml(displayName)}</div>
+          <div class="u-text">${escapeHtml(u.text)}</div>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function renameSpeaker(speakerKey, chipEl) {
+  const currentName = currentTranscript.speakers[speakerKey];
+  const label = chipEl.querySelector('.speaker-label');
+
+  // Replace label with input
+  const input = document.createElement('input');
+  input.className = 'speaker-name-input';
+  input.type = 'text';
+  input.value = currentName;
+  input.size = Math.max(currentName.length, 5);
+  label.replaceWith(input);
+  input.focus();
+  input.select();
+
+  const save = async () => {
+    const newName = input.value.trim() || currentName;
+    try {
+      const res = await fetch(`/api/transcripts/${currentTranscript.id}/speakers`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ [speakerKey]: newName }),
+      });
+      if (!res.ok) throw new Error('Rename failed');
+      currentTranscript = await res.json();
+      renderSpeakers();
+      renderUtterances();
+    } catch (e) {
+      toast(e.message, 'error');
+      renderSpeakers();
+    }
+  };
+
+  input.addEventListener('blur', save);
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+    if (e.key === 'Escape') { input.value = currentName; input.blur(); }
+  });
+}
+
+// === Copy & Export ===
+async function copyForChatGPT() {
+  if (!currentTranscript) return;
+  try {
+    const res = await fetch(`/api/transcripts/${currentTranscript.id}/copytext`);
+    const text = await res.text();
+    await navigator.clipboard.writeText(text);
+    toast('Copied to clipboard!', 'success');
+  } catch (e) {
+    toast('Failed to copy: ' + e.message, 'error');
+  }
+}
+
+function exportTxt() {
+  if (!currentTranscript) return;
+  fetch(`/api/transcripts/${currentTranscript.id}/copytext`)
+    .then(res => res.text())
+    .then(text => {
+      downloadFile(text, currentTranscript.filename.replace(/\.[^.]+$/, '') + '.txt', 'text/plain');
+    });
+}
+
+function exportSrt() {
+  if (!currentTranscript) return;
+  let srt = '';
+  currentTranscript.utterances.forEach((u, i) => {
+    const startSrt = toSrtTime(u.start);
+    const endSrt = toSrtTime(u.end);
+    const name = currentTranscript.speakers[u.speaker] || u.speaker;
+    srt += `${i + 1}\n${startSrt} --> ${endSrt}\n${name}: ${u.text}\n\n`;
+  });
+  downloadFile(srt, currentTranscript.filename.replace(/\.[^.]+$/, '') + '.srt', 'text/srt');
+}
+
+function downloadFile(content, filename, type) {
+  const blob = new Blob([content], { type });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// === Cost Tracker ===
+async function showCosts() {
+  switchView('view-costs');
+
+  try {
+    const [statsRes, perFileRes] = await Promise.all([
+      fetch('/api/stats'),
+      fetch('/api/stats/per-file'),
+    ]);
+    const stats = await statsRes.json();
+    const perFile = await perFileRes.json();
+
+    document.getElementById('stat-month-files').textContent = stats.month_files;
+    document.getElementById('stat-month-min').textContent = stats.month_minutes;
+    document.getElementById('stat-month-cost').textContent = stats.month_cost.toFixed(2);
+    document.getElementById('stat-month-deepgram').textContent = stats.month_deepgram_cost.toFixed(4);
+    document.getElementById('stat-month-kimi').textContent = stats.month_kimi_cost.toFixed(4);
+    document.getElementById('stat-total-files').textContent = stats.total_files;
+    document.getElementById('stat-total-min').textContent = stats.total_minutes;
+    document.getElementById('stat-total-cost').textContent = stats.total_cost.toFixed(2);
+    document.getElementById('stat-total-deepgram').textContent = stats.total_deepgram_cost.toFixed(4);
+    document.getElementById('stat-total-kimi').textContent = stats.total_kimi_cost.toFixed(4);
+    document.getElementById('stat-credit').textContent = stats.credit_remaining.toFixed(2);
+
+    const pct = (stats.credit_remaining / 200) * 100;
+    const bar = document.getElementById('credit-bar');
+    bar.style.width = pct + '%';
+    bar.style.background = pct > 30 ? 'var(--success)' : pct > 10 ? 'var(--warning)' : 'var(--danger)';
+
+    const estimate = document.getElementById('credit-estimate');
+    if (stats.months_remaining !== null) {
+      estimate.textContent = `At current usage, credit lasts ~${stats.months_remaining} more months`;
+    } else {
+      estimate.textContent = '';
+    }
+
+    const table = document.getElementById('per-file-table');
+    if (perFile.length === 0) {
+      table.innerHTML = '<p class="empty-state">No transcriptions yet.</p>';
+    } else {
+      table.innerHTML = perFile.map(f => {
+        const date = new Date(f.created_at).toLocaleDateString();
+        const kimiStr = f.kimi_cost > 0 ? ` + $${f.kimi_cost.toFixed(4)} AI` : '';
+        return `
+          <div class="per-file-row">
+            <span class="pf-name">${escapeHtml(f.filename)}</span>
+            <span class="pf-meta">
+              <span>${date}</span>
+              <span>${f.duration_minutes} min</span>
+              <span>~$${f.estimated_cost.toFixed(4)}${kimiStr}</span>
+            </span>
+          </div>
+        `;
+      }).join('');
+    }
+  } catch (e) {
+    toast('Failed to load costs', 'error');
+  }
+}
+
+// === Navigation ===
+function switchView(viewId) {
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  document.getElementById(viewId).classList.add('active');
+  window.scrollTo(0, 0);
+}
+
+function showHome() {
+  cleanupRecording();
+  stopAudioPlayer();
+  clearTranscriptSearch();
+  currentTranscript = null;
+  switchView('view-home');
+  loadTranscripts();
+}
+
+// === Toast ===
+function toast(message, type = 'info') {
+  const container = document.getElementById('toast-container');
+  const el = document.createElement('div');
+  el.className = `toast ${type}`;
+  el.textContent = message;
+  container.appendChild(el);
+  setTimeout(() => {
+    el.style.opacity = '0';
+    el.style.transition = 'opacity 0.3s';
+    setTimeout(() => el.remove(), 300);
+  }, 3000);
+}
+
+// === Global Search ===
+function onGlobalSearch(query) {
+  clearTimeout(globalSearchTimeout);
+  const resultsEl = document.getElementById('search-results');
+  const clearBtn = document.getElementById('global-search-clear');
+  const uploadZone = document.getElementById('upload-zone');
+  const listEl = document.getElementById('transcript-list');
+
+  if (!query.trim()) {
+    clearGlobalSearch();
+    return;
+  }
+
+  clearBtn.style.display = '';
+
+  globalSearchTimeout = setTimeout(async () => {
+    try {
+      const res = await fetch(`/api/search?q=${encodeURIComponent(query.trim())}`);
+      const results = await res.json();
+
+      if (results.length === 0) {
+        resultsEl.innerHTML = '<p class="empty-state">No matches found.</p>';
+        resultsEl.style.display = 'block';
+        uploadZone.style.display = 'none';
+        listEl.style.display = 'none';
+        return;
+      }
+
+      uploadZone.style.display = 'none';
+      listEl.style.display = 'none';
+      resultsEl.style.display = 'block';
+
+      resultsEl.innerHTML = `<h2 class="section-title">${results.length} transcript${results.length !== 1 ? 's' : ''} matched</h2>` +
+        results.map(r => {
+          const date = new Date(r.created_at).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+          const dur = formatDuration(r.duration_seconds);
+          // Show first few snippets with highlighting
+          const snippetsHtml = r.snippets.slice(0, 3).map(s => {
+            const highlighted = highlightText(s.text, query.trim());
+            return `<div class="sr-snippet">${highlighted}</div>`;
+          }).join('');
+          return `
+            <div class="search-result-card" onclick="openTranscript('${r.id}')">
+              <div class="sr-filename">${escapeHtml(r.filename)}</div>
+              <div class="sr-meta">${date} &middot; ${dur} &middot; ${r.num_speakers} speaker${r.num_speakers !== 1 ? 's' : ''}</div>
+              ${snippetsHtml}
+            </div>
+          `;
+        }).join('');
+    } catch (e) {
+      // Silently fail
+    }
+  }, 300);
+}
+
+function clearGlobalSearch() {
+  document.getElementById('global-search').value = '';
+  document.getElementById('global-search-clear').style.display = 'none';
+  document.getElementById('search-results').style.display = 'none';
+  document.getElementById('upload-zone').style.display = '';
+  document.getElementById('transcript-list').style.display = '';
+}
+
+function highlightText(text, query) {
+  const escaped = escapeHtml(text);
+  const queryEscaped = escapeHtml(query);
+  const regex = new RegExp(`(${queryEscaped.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+  return escaped.replace(regex, '<mark>$1</mark>');
+}
+
+// === In-Transcript Search ===
+function onTranscriptSearch(query) {
+  const nav = document.getElementById('transcript-search-nav');
+  const clearBtn = document.getElementById('transcript-search-clear');
+
+  // Reset highlights
+  document.querySelectorAll('.utterance .u-text').forEach(el => {
+    // Restore original text (strip highlights)
+    el.innerHTML = el.textContent;
+  });
+  transcriptSearchMatches = [];
+  currentMatchIndex = -1;
+
+  if (!query.trim()) {
+    nav.style.display = 'none';
+    clearBtn.style.display = 'none';
+    return;
+  }
+
+  clearBtn.style.display = '';
+  const q = query.trim().toLowerCase();
+
+  // Find and highlight matching utterances
+  document.querySelectorAll('.utterance').forEach(el => {
+    const textEl = el.querySelector('.u-text');
+    const text = textEl.textContent;
+    if (text.toLowerCase().includes(q)) {
+      transcriptSearchMatches.push(el);
+      // Highlight matches in text
+      const regex = new RegExp(`(${query.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+      textEl.innerHTML = escapeHtml(text).replace(regex, '<mark class="highlight">$1</mark>');
+    }
+  });
+
+  // Show nav
+  if (transcriptSearchMatches.length > 0) {
+    currentMatchIndex = 0;
+    nav.style.display = 'flex';
+    updateMatchCounter();
+    scrollToMatch();
+  } else {
+    nav.style.display = 'flex';
+    document.getElementById('match-counter').textContent = '0 matches';
+  }
+}
+
+function nextMatch() {
+  if (transcriptSearchMatches.length === 0) return;
+  currentMatchIndex = (currentMatchIndex + 1) % transcriptSearchMatches.length;
+  updateMatchCounter();
+  scrollToMatch();
+}
+
+function prevMatch() {
+  if (transcriptSearchMatches.length === 0) return;
+  currentMatchIndex = (currentMatchIndex - 1 + transcriptSearchMatches.length) % transcriptSearchMatches.length;
+  updateMatchCounter();
+  scrollToMatch();
+}
+
+function updateMatchCounter() {
+  const counter = document.getElementById('match-counter');
+  if (transcriptSearchMatches.length === 0) {
+    counter.textContent = '0 matches';
+  } else {
+    counter.textContent = `${currentMatchIndex + 1} of ${transcriptSearchMatches.length}`;
+  }
+}
+
+function scrollToMatch() {
+  // Remove current highlight from all
+  transcriptSearchMatches.forEach(el => el.classList.remove('search-active'));
+
+  if (currentMatchIndex >= 0 && currentMatchIndex < transcriptSearchMatches.length) {
+    const el = transcriptSearchMatches[currentMatchIndex];
+    el.classList.add('search-active');
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+}
+
+function clearTranscriptSearch() {
+  const input = document.getElementById('transcript-search');
+  if (input) input.value = '';
+  const nav = document.getElementById('transcript-search-nav');
+  if (nav) nav.style.display = 'none';
+  const clearBtn = document.getElementById('transcript-search-clear');
+  if (clearBtn) clearBtn.style.display = 'none';
+  transcriptSearchMatches = [];
+  currentMatchIndex = -1;
+  // Restore original text
+  document.querySelectorAll('.utterance .u-text').forEach(el => {
+    el.innerHTML = el.textContent;
+  });
+  document.querySelectorAll('.utterance.search-active').forEach(el => {
+    el.classList.remove('search-active');
+  });
+}
+
+// === Audio Player ===
+function setupAudioPlayer(transcript) {
+  const section = document.getElementById('audio-player-section');
+  const audio = document.getElementById('audio-player');
+  const barContainer = document.getElementById('player-bar-container');
+
+  // Stop any previous playback
+  stopAudioPlayer();
+
+  if (!transcript.audio_file) {
+    section.style.display = 'none';
+    return;
+  }
+
+  // Set audio source
+  audio.src = `/api/transcripts/${transcript.id}/audio`;
+  audio.load();
+  section.style.display = 'block';
+  autoScrollEnabled = true;
+
+  // Update total time when metadata loads
+  audio.addEventListener('loadedmetadata', function onMeta() {
+    document.getElementById('player-total').textContent = formatTimestamp(audio.duration);
+    audio.removeEventListener('loadedmetadata', onMeta);
+  });
+
+  // Play/pause state
+  audio.addEventListener('play', () => {
+    document.getElementById('play-icon').style.display = 'none';
+    document.getElementById('pause-icon').style.display = '';
+    startSyncLoop();
+  });
+
+  audio.addEventListener('pause', () => {
+    document.getElementById('play-icon').style.display = '';
+    document.getElementById('pause-icon').style.display = 'none';
+    stopSyncLoop();
+  });
+
+  audio.addEventListener('ended', () => {
+    document.getElementById('play-icon').style.display = '';
+    document.getElementById('pause-icon').style.display = 'none';
+    stopSyncLoop();
+    clearActiveUtterance();
+  });
+
+  // Seek bar click/touch
+  const seekHandler = (e) => {
+    const rect = barContainer.getBoundingClientRect();
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const pct = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+    if (audio.duration) {
+      audio.currentTime = pct * audio.duration;
+      updatePlayerUI();
+    }
+  };
+
+  barContainer.addEventListener('click', seekHandler);
+
+  // Touch drag on seek bar
+  let dragging = false;
+  barContainer.addEventListener('touchstart', (e) => {
+    dragging = true;
+    seekHandler(e);
+  }, { passive: true });
+  document.addEventListener('touchmove', (e) => {
+    if (dragging) seekHandler(e);
+  }, { passive: true });
+  document.addEventListener('touchend', () => { dragging = false; });
+}
+
+function stopAudioPlayer() {
+  const audio = document.getElementById('audio-player');
+  if (audio) {
+    audio.pause();
+    audio.removeAttribute('src');
+    audio.load();
+  }
+  stopSyncLoop();
+  clearActiveUtterance();
+  document.getElementById('play-icon').style.display = '';
+  document.getElementById('pause-icon').style.display = 'none';
+  document.getElementById('player-bar-fill').style.width = '0%';
+  document.getElementById('player-current').textContent = '0:00';
+  document.getElementById('player-total').textContent = '0:00';
+}
+
+function togglePlayback() {
+  const audio = document.getElementById('audio-player');
+  if (!audio.src || audio.src === window.location.href) return;
+  if (audio.paused) {
+    audio.play();
+  } else {
+    audio.pause();
+  }
+}
+
+function seekToUtterance(startTime) {
+  const audio = document.getElementById('audio-player');
+  if (!audio.src || audio.src === window.location.href) return;
+  audio.currentTime = startTime;
+  autoScrollEnabled = true;
+  if (audio.paused) {
+    audio.play();
+  }
+  updatePlayerUI();
+}
+
+function startSyncLoop() {
+  stopSyncLoop();
+  const tick = () => {
+    updatePlayerUI();
+    highlightCurrentUtterance();
+    audioSyncRAF = requestAnimationFrame(tick);
+  };
+  audioSyncRAF = requestAnimationFrame(tick);
+}
+
+function stopSyncLoop() {
+  if (audioSyncRAF) {
+    cancelAnimationFrame(audioSyncRAF);
+    audioSyncRAF = null;
+  }
+}
+
+function updatePlayerUI() {
+  const audio = document.getElementById('audio-player');
+  if (!audio.duration) return;
+  const pct = (audio.currentTime / audio.duration) * 100;
+  document.getElementById('player-bar-fill').style.width = pct + '%';
+  document.getElementById('player-current').textContent = formatTimestamp(audio.currentTime);
+}
+
+function highlightCurrentUtterance() {
+  const audio = document.getElementById('audio-player');
+  const time = audio.currentTime;
+  const utteranceEls = document.querySelectorAll('.utterance[data-start]');
+  let activeEl = null;
+
+  // Find the utterance that contains the current time
+  for (const el of utteranceEls) {
+    const start = parseFloat(el.dataset.start);
+    const end = parseFloat(el.dataset.end);
+    if (time >= start && time < end) {
+      activeEl = el;
+      break;
+    }
+  }
+
+  // If between utterances, highlight the last one before current time
+  if (!activeEl) {
+    for (const el of utteranceEls) {
+      const start = parseFloat(el.dataset.start);
+      if (start <= time) {
+        activeEl = el;
+      } else {
+        break;
+      }
+    }
+  }
+
+  // Update active class
+  const prev = document.querySelector('.utterance.active');
+  if (prev && prev !== activeEl) {
+    prev.classList.remove('active');
+  }
+  if (activeEl && !activeEl.classList.contains('active')) {
+    activeEl.classList.add('active');
+    // Auto-scroll to keep active utterance visible
+    if (autoScrollEnabled) {
+      scrollToUtterance(activeEl);
+    }
+  }
+}
+
+function scrollToUtterance(el) {
+  const rect = el.getBoundingClientRect();
+  const viewH = window.innerHeight;
+  // Only scroll if the element is outside the middle third of the viewport
+  if (rect.top < viewH * 0.25 || rect.bottom > viewH * 0.75) {
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+}
+
+function clearActiveUtterance() {
+  const prev = document.querySelector('.utterance.active');
+  if (prev) prev.classList.remove('active');
+}
+
+// Disable auto-scroll when user manually scrolls
+let scrollTimeout = null;
+window.addEventListener('scroll', () => {
+  // If audio is playing, briefly disable auto-scroll on manual scroll
+  const audio = document.getElementById('audio-player');
+  if (audio && !audio.paused) {
+    autoScrollEnabled = false;
+    clearTimeout(scrollTimeout);
+    scrollTimeout = setTimeout(() => {
+      autoScrollEnabled = true;
+    }, 3000);
+  }
+}, { passive: true });
+
+// === Recording ===
+
+function getRecordingMimeType() {
+  if (typeof MediaRecorder === 'undefined') return null;
+  if (MediaRecorder.isTypeSupported('audio/mp4')) {
+    return { mimeType: 'audio/mp4', extension: '.m4a' };
+  }
+  if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
+    return { mimeType: 'audio/webm;codecs=opus', extension: '.webm' };
+  }
+  if (MediaRecorder.isTypeSupported('audio/webm')) {
+    return { mimeType: 'audio/webm', extension: '.webm' };
+  }
+  return null;
+}
+
+async function startRecording() {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    toast('Your browser does not support audio recording.', 'error');
+    return;
+  }
+
+  const format = getRecordingMimeType();
+  if (!format) {
+    toast('Your browser does not support audio recording formats.', 'error');
+    return;
+  }
+
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch (err) {
+    if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+      toast('Microphone permission denied. Please allow access and try again.', 'error');
+    } else {
+      toast('Could not access microphone: ' + err.message, 'error');
+    }
+    return;
+  }
+
+  recordingMimeType = format.mimeType;
+  recordingFileExtension = format.extension;
+  recordedChunks = [];
+  recordingBackupCounter = 0;
+  recordingSessionId = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+
+  try {
+    mediaRecorder = new MediaRecorder(stream, { mimeType: format.mimeType });
+  } catch (err) {
+    toast('Failed to start recorder: ' + err.message, 'error');
+    stream.getTracks().forEach(t => t.stop());
+    return;
+  }
+
+  mediaRecorder.ondataavailable = (e) => {
+    if (e.data && e.data.size > 0) {
+      recordedChunks.push(e.data);
+    }
+  };
+
+  mediaRecorder.onerror = () => {
+    toast('Recording error occurred.', 'error');
+    cleanupRecording();
+  };
+
+  // Store stream reference for cleanup
+  mediaRecorder._stream = stream;
+
+  // Start with 5-second timeslice
+  mediaRecorder.start(5000);
+  recordingStartTime = Date.now();
+
+  // Show recording UI, hide upload zone
+  document.getElementById('upload-zone').style.display = 'none';
+  document.getElementById('recording-ui').style.display = 'block';
+  document.getElementById('recording-backup-status').textContent = '';
+  document.getElementById('recording-timer').textContent = '00:00';
+
+  // Timer updates every second
+  updateRecordingTimer();
+  recordingTimerInterval = setInterval(updateRecordingTimer, 1000);
+
+  // Backup every 30 seconds
+  recordingBackupInterval = setInterval(saveRecordingBackup, 30000);
+}
+
+function updateRecordingTimer() {
+  if (!recordingStartTime) return;
+  const elapsed = Math.floor((Date.now() - recordingStartTime) / 1000);
+  const mm = String(Math.floor(elapsed / 60)).padStart(2, '0');
+  const ss = String(elapsed % 60).padStart(2, '0');
+  document.getElementById('recording-timer').textContent = mm + ':' + ss;
+}
+
+function saveRecordingBackup() {
+  if (recordedChunks.length === 0) return;
+
+  recordingBackupCounter++;
+  const blob = new Blob(recordedChunks, { type: recordingMimeType });
+  const filename = 'rec-' + recordingSessionId + '-backup-' + recordingBackupCounter + recordingFileExtension;
+
+  downloadFile(blob, filename, recordingMimeType);
+
+  // Update backup status text
+  const elapsed = Math.floor((Date.now() - recordingStartTime) / 1000);
+  const mm = Math.floor(elapsed / 60);
+  const ss = elapsed % 60;
+  document.getElementById('recording-backup-status').textContent =
+    'Last backup saved: ' + mm + ':' + String(ss).padStart(2, '0');
+}
+
+async function stopRecording() {
+  if (!mediaRecorder || mediaRecorder.state === 'inactive') return;
+
+  // Clear timers
+  clearInterval(recordingTimerInterval);
+  clearInterval(recordingBackupInterval);
+  recordingTimerInterval = null;
+  recordingBackupInterval = null;
+
+  // Wait for final data
+  const stopped = new Promise((resolve) => {
+    mediaRecorder.addEventListener('stop', resolve, { once: true });
+  });
+
+  mediaRecorder.requestData();
+  mediaRecorder.stop();
+  await stopped;
+
+  // Release microphone
+  if (mediaRecorder._stream) {
+    mediaRecorder._stream.getTracks().forEach(t => t.stop());
+  }
+
+  // Build final blob
+  const blob = new Blob(recordedChunks, { type: recordingMimeType });
+
+  if (blob.size === 0) {
+    toast('No audio was recorded.', 'error');
+    cleanupRecording();
+    return;
+  }
+
+  // Save final file locally
+  const finalFilename = 'rec-' + recordingSessionId + '-final' + recordingFileExtension;
+  downloadFile(blob, finalFilename, recordingMimeType);
+
+  // Hide recording UI
+  document.getElementById('recording-ui').style.display = 'none';
+
+  // Create File for upload
+  const serverFilename = 'rec-' + recordingSessionId + recordingFileExtension;
+  const file = new File([blob], serverFilename, { type: recordingMimeType });
+
+  // Set pending session so uploadFile auto-downloads transcript
+  pendingRecordingSessionId = recordingSessionId;
+
+  // Reset state
+  recordedChunks = [];
+  mediaRecorder = null;
+  recordingStartTime = null;
+  recordingBackupCounter = 0;
+  recordingSessionId = '';
+
+  // Upload to server via existing flow
+  uploadFile(file);
+}
+
+function cleanupRecording() {
+  if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+    try { mediaRecorder.stop(); } catch (e) { /* ignore */ }
+  }
+  if (mediaRecorder && mediaRecorder._stream) {
+    mediaRecorder._stream.getTracks().forEach(t => t.stop());
+  }
+
+  clearInterval(recordingTimerInterval);
+  clearInterval(recordingBackupInterval);
+  recordingTimerInterval = null;
+  recordingBackupInterval = null;
+
+  recordedChunks = [];
+  mediaRecorder = null;
+  recordingStartTime = null;
+  recordingBackupCounter = 0;
+
+  document.getElementById('recording-ui').style.display = 'none';
+  document.getElementById('upload-zone').style.display = '';
+}
+
+// === Helpers ===
+function formatDuration(seconds) {
+  if (!seconds) return '0s';
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = Math.floor(seconds % 60);
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m ${s}s`;
+  return `${s}s`;
+}
+
+function formatTimestamp(seconds) {
+  const total = Math.floor(seconds);
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
+
+function toSrtTime(seconds) {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = Math.floor(seconds % 60);
+  const ms = Math.round((seconds % 1) * 1000);
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')},${String(ms).padStart(3, '0')}`;
+}
+
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+function escapeAttr(str) {
+  return str.replace(/'/g, "\\'").replace(/"/g, '&quot;');
+}
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
