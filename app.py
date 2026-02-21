@@ -108,6 +108,24 @@ def format_timestamp(seconds: float) -> str:
     return f"[{m:02d}:{s:02d}]"
 
 
+def merge_short_utterances(utterances: list, min_words: int = 8, max_gap: float = 5.0) -> list:
+    """Merge consecutive same-speaker utterances that are too short, within a time gap."""
+    if not utterances:
+        return utterances
+    merged = [dict(utterances[0])]
+    for u in utterances[1:]:
+        prev = merged[-1]
+        prev_words = len(prev["text"].split())
+        same_speaker = u["speaker"] == prev["speaker"]
+        gap = u["start"] - prev["end"]
+        if same_speaker and prev_words < min_words and gap <= max_gap:
+            prev["text"] = prev["text"].rstrip(",. ") + " " + u["text"]
+            prev["end"] = u["end"]
+        else:
+            merged.append(dict(u))
+    return merged
+
+
 def generate_full_text(utterances: list, speakers: dict) -> str:
     """Build the full_text field from utterances with speaker name mapping."""
     lines = []
@@ -331,6 +349,9 @@ async def transcribe(file: UploadFile = File(...)):
                         "end": current_end,
                     })
 
+        # Merge short utterances into longer ones
+        utterances = merge_short_utterances(utterances)
+
         # Build speakers mapping
         speakers = {s: s for s in sorted(speaker_set)}
 
@@ -460,6 +481,46 @@ async def copy_by_tag(tag: str = Query(..., min_length=1)):
 @app.get("/api/transcripts/{transcript_id}")
 async def get_transcript(transcript_id: str):
     return load_transcript(transcript_id)
+
+
+@app.post("/api/transcripts/{transcript_id}/bookmark")
+async def toggle_bookmark(transcript_id: str, request: Request):
+    body = await request.json()
+    index = body.get("index")
+    if index is None or not isinstance(index, int):
+        raise HTTPException(status_code=400, detail="Missing or invalid 'index'")
+    transcript = load_transcript(transcript_id)
+    if index < 0 or index >= len(transcript.get("utterances", [])):
+        raise HTTPException(status_code=400, detail="Index out of range")
+    bookmarks = transcript.get("bookmarks", [])
+    if index in bookmarks:
+        bookmarks.remove(index)
+    else:
+        bookmarks.append(index)
+        bookmarks.sort()
+    transcript["bookmarks"] = bookmarks
+    save_transcript(transcript)
+    return {"bookmarks": bookmarks}
+
+
+@app.post("/api/transcripts/{transcript_id}/summary")
+async def generate_transcript_summary(transcript_id: str):
+    transcript = load_transcript(transcript_id)
+    if not transcript.get("full_text"):
+        raise HTTPException(status_code=400, detail="No text to summarize")
+    summary_result = await asyncio.to_thread(generate_summary, transcript["full_text"])
+    if not summary_result:
+        raise HTTPException(status_code=500, detail="Summary generation failed — check your KIMI_API_KEY")
+    transcript["summary"] = summary_result["text"]
+    transcript["summary_usage"] = {
+        "input_tokens": summary_result["input_tokens"],
+        "output_tokens": summary_result["output_tokens"],
+        "cost": summary_result["cost"],
+    }
+    path = TRANSCRIPTS_DIR / f"{transcript_id}.json"
+    with open(path, "w") as f:
+        json.dump(transcript, f, indent=2)
+    return {"summary": summary_result["text"]}
 
 
 @app.delete("/api/transcripts/{transcript_id}")

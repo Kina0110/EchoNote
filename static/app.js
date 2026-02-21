@@ -564,8 +564,14 @@ function showTranscript(transcript) {
   document.getElementById('t-duration').textContent = formatDuration(transcript.duration_seconds);
 
   const summaryEl = document.getElementById('t-summary');
+  const summaryBtn = document.getElementById('btn-generate-summary');
   summaryEl.textContent = transcript.summary || '';
   summaryEl.style.display = transcript.summary ? '' : 'none';
+  summaryBtn.style.display = transcript.summary ? 'none' : '';
+
+  bookmarkFilterActive = false;
+  const bmBtn = document.getElementById('btn-bookmark-filter');
+  if (bmBtn) bmBtn.classList.remove('active');
 
   renderSpeakers();
   renderTranscriptTags();
@@ -590,26 +596,58 @@ function renderSpeakers() {
   }).join('');
 }
 
+let bookmarkFilterActive = false;
+
 function renderUtterances() {
   const container = document.getElementById('utterances');
   const speakers = Object.keys(currentTranscript.speakers);
+  const bookmarks = currentTranscript.bookmarks || [];
 
   container.innerHTML = currentTranscript.utterances.map((u, i) => {
     const idx = speakers.indexOf(u.speaker);
     const color = SPEAKER_COLORS[(idx >= 0 ? idx : 0) % SPEAKER_COLORS.length];
     const displayName = currentTranscript.speakers[u.speaker] || u.speaker;
     const ts = formatTimestamp(u.start);
+    const isBookmarked = bookmarks.includes(i);
+    const hidden = bookmarkFilterActive && !isBookmarked ? 'style="display:none"' : '';
 
     return `
-      <div class="utterance" data-index="${i}" data-start="${u.start}" data-end="${u.end}" onclick="seekToUtterance(${u.start})">
+      <div class="utterance ${isBookmarked ? 'bookmarked' : ''}" data-index="${i}" data-start="${u.start}" data-end="${u.end}" onclick="seekToUtterance(${u.start})" ${hidden}>
         <div class="u-timestamp">${ts}</div>
         <div class="u-content">
           <div class="u-speaker" style="color:${color}">${escapeHtml(displayName)}</div>
           <div class="u-text">${escapeHtml(u.text)}</div>
         </div>
+        <button class="u-bookmark ${isBookmarked ? 'active' : ''}" onclick="event.stopPropagation(); toggleBookmark(${i})" title="Bookmark">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="${isBookmarked ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
+        </button>
       </div>
     `;
   }).join('');
+}
+
+async function toggleBookmark(index) {
+  if (!currentTranscript) return;
+  try {
+    const res = await fetch(`/api/transcripts/${currentTranscript.id}/bookmark`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ index })
+    });
+    if (!res.ok) throw new Error('Failed to toggle bookmark');
+    const data = await res.json();
+    currentTranscript.bookmarks = data.bookmarks;
+    renderUtterances();
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+}
+
+function toggleBookmarkFilter() {
+  bookmarkFilterActive = !bookmarkFilterActive;
+  const btn = document.getElementById('btn-bookmark-filter');
+  btn.classList.toggle('active', bookmarkFilterActive);
+  renderUtterances();
 }
 
 function renameSpeaker(speakerKey, chipEl) {
@@ -652,6 +690,31 @@ function renameSpeaker(speakerKey, chipEl) {
 }
 
 // === Copy & Export ===
+async function generateSummary() {
+  if (!currentTranscript) return;
+  const btn = document.getElementById('btn-generate-summary');
+  btn.textContent = 'Generating...';
+  btn.disabled = true;
+  try {
+    const res = await fetch(`/api/transcripts/${currentTranscript.id}/summary`, { method: 'POST' });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.detail || 'Failed to generate summary');
+    }
+    const data = await res.json();
+    currentTranscript.summary = data.summary;
+    const summaryEl = document.getElementById('t-summary');
+    summaryEl.textContent = data.summary;
+    summaryEl.style.display = '';
+    btn.style.display = 'none';
+    toast('Summary generated!', 'success');
+  } catch (e) {
+    toast(e.message, 'error');
+    btn.textContent = 'Generate Summary';
+    btn.disabled = false;
+  }
+}
+
 async function copyForChatGPT() {
   if (!currentTranscript) return;
   try {
@@ -973,6 +1036,11 @@ function setupAudioPlayer(transcript) {
   section.style.display = 'block';
   autoScrollEnabled = true;
 
+  // Reset playback speed
+  currentSpeedIndex = 0;
+  audio.playbackRate = 1;
+  document.getElementById('speed-btn').textContent = '1x';
+
   // Update total time when metadata loads
   audio.addEventListener('loadedmetadata', function onMeta() {
     document.getElementById('player-total').textContent = formatTimestamp(audio.duration);
@@ -1038,6 +1106,17 @@ function stopAudioPlayer() {
   document.getElementById('player-bar-fill').style.width = '0%';
   document.getElementById('player-current').textContent = '0:00';
   document.getElementById('player-total').textContent = '0:00';
+}
+
+const SPEED_OPTIONS = [1, 1.25, 1.5, 2, 3];
+let currentSpeedIndex = 0;
+
+function cycleSpeed() {
+  currentSpeedIndex = (currentSpeedIndex + 1) % SPEED_OPTIONS.length;
+  const speed = SPEED_OPTIONS[currentSpeedIndex];
+  const audio = document.getElementById('audio-player');
+  audio.playbackRate = speed;
+  document.getElementById('speed-btn').textContent = speed + 'x';
 }
 
 function togglePlayback() {
