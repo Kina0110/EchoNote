@@ -6,7 +6,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>Transcriber</title>
-  <link rel="stylesheet" href="/static/style.css?v=8">
+  <link rel="stylesheet" href="/static/style.css?v=13">
 </head>
 <body>
   <!-- Toast container -->
@@ -85,6 +85,11 @@
       </button>
     </div>
 
+    <label class="keep-video-toggle" onclick="event.stopPropagation()">
+      <input type="checkbox" id="keep-video-checkbox">
+      <span>Keep video for playback</span>
+    </label>
+
     <!-- Recording UI -->
     <div id="recording-ui" class="recording-ui" style="display:none;">
       <div class="recording-indicator">
@@ -143,8 +148,9 @@
       </div>
     </div>
 
-    <!-- Audio player -->
+    <!-- Media player -->
     <div id="audio-player-section" class="audio-player-section" style="display:none;">
+      <video id="video-player" class="video-player" preload="auto" playsinline style="display:none;"></video>
       <audio id="audio-player" preload="auto"></audio>
       <div class="player-controls">
         <button class="player-btn" id="play-btn" onclick="togglePlayback()">
@@ -172,6 +178,10 @@
       </div>
       <div id="t-summary" class="t-summary"></div>
       <button id="btn-generate-summary" class="btn-generate-summary" onclick="generateSummary()" style="display:none">Generate Summary</button>
+      <div id="action-items-section" class="action-items-section" style="display:none">
+        <div class="action-items-header">Action Items</div>
+        <div id="action-items-list" class="action-items-list"></div>
+      </div>
     </div>
 
     <!-- Speaker legend -->
@@ -241,7 +251,7 @@
           <div class="stat-cost">~$<span id="stat-month-cost">0.00</span></div>
           <div class="stat-breakdown">
             <span>Deepgram: $<span id="stat-month-deepgram">0.00</span></span>
-            <span>Kimi AI: $<span id="stat-month-kimi">0.00</span></span>
+            <span>GPT AI: $<span id="stat-month-gpt">0.00</span></span>
           </div>
         </div>
         <div class="stat-card">
@@ -254,7 +264,7 @@
           <div class="stat-cost">~$<span id="stat-total-cost">0.00</span></div>
           <div class="stat-breakdown">
             <span>Deepgram: $<span id="stat-total-deepgram">0.00</span></span>
-            <span>Kimi AI: $<span id="stat-total-kimi">0.00</span></span>
+            <span>GPT AI: $<span id="stat-total-gpt">0.00</span></span>
           </div>
         </div>
       </div>
@@ -270,6 +280,13 @@
         <div id="credit-estimate" class="credit-estimate"></div>
       </div>
 
+      <div class="storage-section">
+        <div class="storage-header">
+          <span>Video Storage</span>
+          <span class="storage-amount" id="stat-video-storage">0 MB</span>
+        </div>
+      </div>
+
       <div class="per-file-section">
         <h3>Per-File Breakdown</h3>
         <div id="per-file-table" class="per-file-table"></div>
@@ -277,6 +294,6 @@
     </div>
   </div>
 
-  <script src="/static/app.js?v=8"></script>
+  <script src="/static/app.js?v=13"></script>
 </body>
 </html>
