@@ -5,3 +5,5 @@ python-multipart
 deepgram-sdk
 aiofiles
 openai
+resemblyzer
+soundfile

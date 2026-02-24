@@ -130,6 +130,10 @@ async function uploadFile(file) {
 
   const formData = new FormData();
   formData.append('file', file);
+  const keepVideo = document.getElementById('keep-video-checkbox');
+  if (keepVideo && keepVideo.checked) {
+    formData.append('keep_video', 'true');
+  }
 
   try {
     const xhr = new XMLHttpRequest();
@@ -569,6 +573,8 @@ function showTranscript(transcript) {
   summaryEl.style.display = transcript.summary ? '' : 'none';
   summaryBtn.style.display = transcript.summary ? 'none' : '';
 
+  renderActionItems();
+
   bookmarkFilterActive = false;
   const bmBtn = document.getElementById('btn-bookmark-filter');
   if (bmBtn) bmBtn.classList.remove('active');
@@ -703,15 +709,130 @@ async function generateSummary() {
     }
     const data = await res.json();
     currentTranscript.summary = data.summary;
+    currentTranscript.action_items = data.action_items || [];
     const summaryEl = document.getElementById('t-summary');
     summaryEl.textContent = data.summary;
     summaryEl.style.display = '';
     btn.style.display = 'none';
+    renderActionItems();
     toast('Summary generated!', 'success');
   } catch (e) {
     toast(e.message, 'error');
     btn.textContent = 'Generate Summary';
     btn.disabled = false;
+  }
+}
+
+function renderActionItems() {
+  const section = document.getElementById('action-items-section');
+  const list = document.getElementById('action-items-list');
+  const items = currentTranscript.action_items || [];
+  if (!items.length) {
+    section.style.display = 'none';
+    return;
+  }
+  section.style.display = '';
+  list.innerHTML = items.map((item, i) => {
+    const status = item.status || 'pending';
+    const checkSvg = status === 'accepted'
+      ? '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12l5 5L19 7"/></svg>'
+      : '';
+    return `
+      <div class="action-item ${status}" data-index="${i}">
+        <button class="action-item-check" onclick="toggleActionItem(${i})" title="${status === 'accepted' ? 'Mark pending' : 'Accept'}">${checkSvg}</button>
+        <span class="action-item-text" onclick="event.stopPropagation(); highlightActionSource(${i})" style="cursor:pointer">${escapeHtml(item.text)}</span>
+        <button class="action-item-dismiss" onclick="dismissActionItem(${i})" title="${status === 'dismissed' ? 'Restore' : 'Dismiss'}">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+        </button>
+        <button class="action-item-delete" onclick="deleteActionItem(${i})" title="Delete">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4h8v2M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/></svg>
+        </button>
+      </div>
+    `;
+  }).join('');
+}
+
+async function updateActionItemStatus(index, status) {
+  if (!currentTranscript) return;
+  try {
+    const res = await fetch(`/api/transcripts/${currentTranscript.id}/action-items`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ index, status })
+    });
+    if (!res.ok) throw new Error('Failed to update');
+    const data = await res.json();
+    currentTranscript.action_items = data.action_items;
+    renderActionItems();
+  } catch (e) {
+    toast('Failed to update action item', 'error');
+  }
+}
+
+function toggleActionItem(index) {
+  const items = currentTranscript.action_items || [];
+  const current = items[index]?.status || 'pending';
+  const next = current === 'accepted' ? 'pending' : 'accepted';
+  updateActionItemStatus(index, next);
+}
+
+function dismissActionItem(index) {
+  const items = currentTranscript.action_items || [];
+  const current = items[index]?.status || 'pending';
+  const next = current === 'dismissed' ? 'pending' : 'dismissed';
+  updateActionItemStatus(index, next);
+}
+
+function deleteActionItem(index) {
+  updateActionItemStatus(index, 'deleted');
+}
+
+function highlightActionSource(index) {
+  const items = currentTranscript.action_items || [];
+  const item = items[index];
+  if (!item || !currentTranscript.utterances) return;
+
+  // Extract meaningful keywords from the action item (3+ chars, skip stop words)
+  const stopWords = new Set(['the','and','for','with','that','this','from','are','was','were','will','have','has','been','being','would','could','should','into','about','also','then','than','them','they','their','when','what','which','where','who','how','not','but','all','can','had','her','his','its','our','out','use','may','need','new','now','one','two','get','set','add','run','let','put','via','per']);
+  const keywords = item.text.toLowerCase()
+    .replace(/[^a-z0-9\s]/g, '')
+    .split(/\s+/)
+    .filter(w => w.length >= 3 && !stopWords.has(w));
+
+  if (!keywords.length) return;
+
+  // Score each utterance by how many keywords it contains
+  let bestIdx = -1;
+  let bestScore = 0;
+  currentTranscript.utterances.forEach((u, i) => {
+    const text = u.text.toLowerCase();
+    let score = 0;
+    keywords.forEach(kw => {
+      if (text.includes(kw)) score++;
+    });
+    if (score > bestScore) {
+      bestScore = score;
+      bestIdx = i;
+    }
+  });
+
+  if (bestIdx < 0) {
+    toast('Could not find matching section', 'error');
+    return;
+  }
+
+  // Remove any existing action highlight
+  document.querySelectorAll('.utterance.action-highlight').forEach(el => {
+    el.classList.remove('action-highlight');
+  });
+
+  // Highlight and scroll to the best match
+  const utteranceEl = document.querySelector(`.utterance[data-index="${bestIdx}"]`);
+  if (utteranceEl) {
+    utteranceEl.classList.add('action-highlight');
+    utteranceEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    // Remove highlight after 3 seconds
+    setTimeout(() => utteranceEl.classList.remove('action-highlight'), 3000);
   }
 }
 
@@ -774,12 +895,12 @@ async function showCosts() {
     document.getElementById('stat-month-min').textContent = stats.month_minutes;
     document.getElementById('stat-month-cost').textContent = stats.month_cost.toFixed(2);
     document.getElementById('stat-month-deepgram').textContent = stats.month_deepgram_cost.toFixed(4);
-    document.getElementById('stat-month-kimi').textContent = stats.month_kimi_cost.toFixed(4);
+    document.getElementById('stat-month-gpt').textContent = stats.month_gpt_cost.toFixed(4);
     document.getElementById('stat-total-files').textContent = stats.total_files;
     document.getElementById('stat-total-min').textContent = stats.total_minutes;
     document.getElementById('stat-total-cost').textContent = stats.total_cost.toFixed(2);
     document.getElementById('stat-total-deepgram').textContent = stats.total_deepgram_cost.toFixed(4);
-    document.getElementById('stat-total-kimi').textContent = stats.total_kimi_cost.toFixed(4);
+    document.getElementById('stat-total-gpt').textContent = stats.total_gpt_cost.toFixed(4);
     document.getElementById('stat-credit').textContent = stats.credit_remaining.toFixed(2);
 
     const pct = (stats.credit_remaining / 200) * 100;
@@ -794,13 +915,19 @@ async function showCosts() {
       estimate.textContent = '';
     }
 
+    const videoStorage = document.getElementById('stat-video-storage');
+    if (videoStorage) {
+      const mb = stats.video_storage_mb || 0;
+      videoStorage.textContent = mb >= 1024 ? (mb / 1024).toFixed(1) + ' GB' : mb + ' MB';
+    }
+
     const table = document.getElementById('per-file-table');
     if (perFile.length === 0) {
       table.innerHTML = '<p class="empty-state">No transcriptions yet.</p>';
     } else {
       table.innerHTML = perFile.map(f => {
         const date = new Date(f.created_at).toLocaleDateString();
-        const kimiStr = f.kimi_cost > 0 ? ` + $${f.kimi_cost.toFixed(4)} AI` : '';
+        const kimiStr = f.gpt_cost > 0 ? ` + $${f.gpt_cost.toFixed(4)} AI` : '';
         return `
           <div class="per-file-row">
             <span class="pf-name">${escapeHtml(f.filename)}</span>
@@ -1017,50 +1144,71 @@ function clearTranscriptSearch() {
 }
 
 // === Audio Player ===
+let usingVideo = false;
+
+function getMediaElement() {
+  return usingVideo
+    ? document.getElementById('video-player')
+    : document.getElementById('audio-player');
+}
+
 function setupAudioPlayer(transcript) {
   const section = document.getElementById('audio-player-section');
   const audio = document.getElementById('audio-player');
+  const video = document.getElementById('video-player');
   const barContainer = document.getElementById('player-bar-container');
 
   // Stop any previous playback
   stopAudioPlayer();
 
-  if (!transcript.audio_file) {
+  if (!transcript.audio_file && !transcript.video_file) {
     section.style.display = 'none';
     return;
   }
 
-  // Set audio source
-  audio.src = `/api/transcripts/${transcript.id}/audio`;
-  audio.load();
+  // Decide: video or audio player
+  usingVideo = !!transcript.video_file;
+  if (usingVideo) {
+    video.src = `/api/transcripts/${transcript.id}/video`;
+    video.load();
+    video.style.display = 'block';
+    audio.style.display = 'none';
+  } else {
+    audio.src = `/api/transcripts/${transcript.id}/audio`;
+    audio.load();
+    audio.style.display = 'none'; // hidden element, plays in background
+    video.style.display = 'none';
+  }
+
+  const media = getMediaElement();
   section.style.display = 'block';
   autoScrollEnabled = true;
 
   // Reset playback speed
   currentSpeedIndex = 0;
-  audio.playbackRate = 1;
+  media.playbackRate = 1;
   document.getElementById('speed-btn').textContent = '1x';
 
   // Update total time when metadata loads
-  audio.addEventListener('loadedmetadata', function onMeta() {
-    document.getElementById('player-total').textContent = formatTimestamp(audio.duration);
-    audio.removeEventListener('loadedmetadata', onMeta);
+  media.addEventListener('loadedmetadata', function onMeta() {
+    document.getElementById('player-total').textContent = formatTimestamp(media.duration);
+    media.removeEventListener('loadedmetadata', onMeta);
   });
 
   // Play/pause state
-  audio.addEventListener('play', () => {
+  media.addEventListener('play', () => {
     document.getElementById('play-icon').style.display = 'none';
     document.getElementById('pause-icon').style.display = '';
     startSyncLoop();
   });
 
-  audio.addEventListener('pause', () => {
+  media.addEventListener('pause', () => {
     document.getElementById('play-icon').style.display = '';
     document.getElementById('pause-icon').style.display = 'none';
     stopSyncLoop();
   });
 
-  audio.addEventListener('ended', () => {
+  media.addEventListener('ended', () => {
     document.getElementById('play-icon').style.display = '';
     document.getElementById('pause-icon').style.display = 'none';
     stopSyncLoop();
@@ -1072,8 +1220,8 @@ function setupAudioPlayer(transcript) {
     const rect = barContainer.getBoundingClientRect();
     const clientX = e.touches ? e.touches[0].clientX : e.clientX;
     const pct = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
-    if (audio.duration) {
-      audio.currentTime = pct * audio.duration;
+    if (media.duration) {
+      media.currentTime = pct * media.duration;
       updatePlayerUI();
     }
   };
@@ -1093,12 +1241,15 @@ function setupAudioPlayer(transcript) {
 }
 
 function stopAudioPlayer() {
-  const audio = document.getElementById('audio-player');
-  if (audio) {
-    audio.pause();
-    audio.removeAttribute('src');
-    audio.load();
+  for (const el of [document.getElementById('audio-player'), document.getElementById('video-player')]) {
+    if (el) {
+      el.pause();
+      el.removeAttribute('src');
+      el.load();
+    }
   }
+  const video = document.getElementById('video-player');
+  if (video) video.style.display = 'none';
   stopSyncLoop();
   clearActiveUtterance();
   document.getElementById('play-icon').style.display = '';
@@ -1114,28 +1265,28 @@ let currentSpeedIndex = 0;
 function cycleSpeed() {
   currentSpeedIndex = (currentSpeedIndex + 1) % SPEED_OPTIONS.length;
   const speed = SPEED_OPTIONS[currentSpeedIndex];
-  const audio = document.getElementById('audio-player');
-  audio.playbackRate = speed;
+  const media = getMediaElement();
+  media.playbackRate = speed;
   document.getElementById('speed-btn').textContent = speed + 'x';
 }
 
 function togglePlayback() {
-  const audio = document.getElementById('audio-player');
-  if (!audio.src || audio.src === window.location.href) return;
-  if (audio.paused) {
-    audio.play();
+  const media = getMediaElement();
+  if (!media.src || media.src === window.location.href) return;
+  if (media.paused) {
+    media.play();
   } else {
-    audio.pause();
+    media.pause();
   }
 }
 
 function seekToUtterance(startTime) {
-  const audio = document.getElementById('audio-player');
-  if (!audio.src || audio.src === window.location.href) return;
-  audio.currentTime = startTime;
+  const media = getMediaElement();
+  if (!media.src || media.src === window.location.href) return;
+  media.currentTime = startTime;
   autoScrollEnabled = true;
-  if (audio.paused) {
-    audio.play();
+  if (media.paused) {
+    media.play();
   }
   updatePlayerUI();
 }
@@ -1158,16 +1309,16 @@ function stopSyncLoop() {
 }
 
 function updatePlayerUI() {
-  const audio = document.getElementById('audio-player');
-  if (!audio.duration) return;
-  const pct = (audio.currentTime / audio.duration) * 100;
+  const media = getMediaElement();
+  if (!media.duration) return;
+  const pct = (media.currentTime / media.duration) * 100;
   document.getElementById('player-bar-fill').style.width = pct + '%';
-  document.getElementById('player-current').textContent = formatTimestamp(audio.currentTime);
+  document.getElementById('player-current').textContent = formatTimestamp(media.currentTime);
 }
 
 function highlightCurrentUtterance() {
-  const audio = document.getElementById('audio-player');
-  const time = audio.currentTime;
+  const media = getMediaElement();
+  const time = media.currentTime;
   const utteranceEls = document.querySelectorAll('.utterance[data-start]');
   let activeEl = null;
 
@@ -1224,9 +1375,9 @@ function clearActiveUtterance() {
 // Disable auto-scroll when user manually scrolls
 let scrollTimeout = null;
 window.addEventListener('scroll', () => {
-  // If audio is playing, briefly disable auto-scroll on manual scroll
-  const audio = document.getElementById('audio-player');
-  if (audio && !audio.paused) {
+  // If media is playing, briefly disable auto-scroll on manual scroll
+  const media = getMediaElement();
+  if (media && !media.paused) {
     autoScrollEnabled = false;
     clearTimeout(scrollTimeout);
     scrollTimeout = setTimeout(() => {

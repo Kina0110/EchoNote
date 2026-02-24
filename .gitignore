@@ -1,16 +1,24 @@
 # Environment & secrets
 .env
 venv/
+.venv/
 
 # User data
 transcripts/
 audio/
+videos/
 uploads/
+voiceprints.json
+tags.json
 
 # IDE / OS
 .DS_Store
 __pycache__/
 *.pyc
+
+# Build/planning docs
+BUILD-PLAN.md
+SPEC.md
 
 # Claude
 .claude/
