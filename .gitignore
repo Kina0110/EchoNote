@@ -1,9 +1,13 @@
 # Environment & secrets
 .env
+
+# Python
 venv/
 .venv/
+__pycache__/
+*.pyc
 
-# User data
+# User data (transcripts, audio, voiceprints)
 transcripts/
 audio/
 videos/
@@ -11,14 +15,33 @@ uploads/
 voiceprints.json
 tags.json
 
-# IDE / OS
-.DS_Store
-__pycache__/
-*.pyc
+# Media files (never upload)
+*.wav
+*.mp3
+*.m4a
+*.ogg
+*.flac
+*.aac
+*.wma
+*.mp4
+*.mov
+*.avi
+*.mkv
+*.webm
+
+# Logs
+*.log
+*.jsonl
 
 # Build/planning docs
 BUILD-PLAN.md
 SPEC.md
+
+# IDE / OS
+.DS_Store
+*.swp
+.idea/
+.vscode/
 
 # Claude
 .claude/
