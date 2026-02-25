@@ -39,6 +39,18 @@ async def health():
     return {"ffmpeg": ffmpeg_available, "api_key": api_key_configured}
 
 
+@app.get("/api/version")
+async def version():
+    """Return app version and basic system info."""
+    transcript_count = len(list(TRANSCRIPTS_DIR.glob("*.json")))
+    return {
+        "app": "Voice Transcriber",
+        "version": "1.1.0",
+        "transcripts": transcript_count,
+        "ffmpeg": ffmpeg_available,
+    }
+
+
 # --- Transcription ---
 
 @app.post("/api/transcribe")
