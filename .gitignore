@@ -43,5 +43,7 @@ SPEC.md
 .idea/
 .vscode/
 
-# Claude
+# AI coding agents
 .claude/
+.aider*
+.opencode/

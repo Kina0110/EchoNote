@@ -175,6 +175,50 @@ The Deepgram free credit ($200) covers roughly 360 hours of audio. At ~3 hours/w
 - **Audio processing:** ffmpeg
 - **Storage:** JSON files on disk (no database needed)
 
+## AI-Assisted Development
+
+This project includes an `AGENTS.md` file with coding conventions that AI coding agents automatically follow.
+
+### Claude Code
+
+```bash
+cd voice-transcriber
+claude
+```
+
+Claude Code reads `AGENTS.md` automatically. It also has a memory file at `.claude/` for cross-session context.
+
+### OpenCode
+
+```bash
+cd voice-transcriber
+opencode
+```
+
+OpenCode reads `AGENTS.md` automatically. Configure your model in `opencode.json`:
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "agent": {
+    "build": {
+      "model": "openrouter/deepseek/deepseek-v3.2"
+    }
+  }
+}
+```
+
+Set your API key: `export OPENROUTER_API_KEY=your_key` in `~/.zshrc`.
+
+### Aider
+
+```bash
+cd voice-transcriber
+aider --model openrouter/deepseek/deepseek-v3.2
+```
+
+Configure in `~/.aider.conf.yml`. Reads `.aider/conventions.md` for project rules.
+
 ## Project Structure
 
 ```
