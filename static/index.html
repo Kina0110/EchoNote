@@ -6,7 +6,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>Transcriber</title>
-  <link rel="stylesheet" href="/static/style.css?v=13">
+  <link rel="stylesheet" href="/static/style.css?v=18">
 </head>
 <body>
   <!-- Toast container -->
@@ -68,7 +68,7 @@
 
     <!-- Upload zone -->
     <div id="upload-zone" class="upload-zone" onclick="document.getElementById('file-input').click()">
-      <input type="file" id="file-input" accept=".mp4,.mov,.avi,.mkv,.webm,.mp3,.wav,.m4a,.ogg,.flac,.aac,.wma" style="display:none">
+      <input type="file" id="file-input" accept=".mp4,.mov,.avi,.mkv,.webm,.mp3,.wav,.m4a,.ogg,.flac,.aac,.wma" multiple style="display:none">
       <div class="upload-icon">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
           <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
@@ -76,8 +76,8 @@
           <line x1="12" y1="3" x2="12" y2="15"/>
         </svg>
       </div>
-      <p class="upload-title">Drop your file here or tap to upload</p>
-      <p class="upload-subtitle">MP4, MOV, MP3, WAV, M4A, and more &middot; Max 2GB</p>
+      <p class="upload-title">Drop your files here or tap to upload</p>
+      <p class="upload-subtitle">MP4, MOV, MP3, WAV, M4A, and more &middot; Max 2GB &middot; Select multiple to combine</p>
       <div class="upload-divider"><span>or</span></div>
       <button class="btn-record-start" onclick="event.stopPropagation(); startRecording()">
         <svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="6"/></svg>
@@ -85,10 +85,24 @@
       </button>
     </div>
 
-    <label class="keep-video-toggle" onclick="event.stopPropagation()">
-      <input type="checkbox" id="keep-video-checkbox">
-      <span>Keep video for playback</span>
-    </label>
+    <!-- Staged files queue -->
+    <div id="staged-files" class="staged-files" style="display:none;">
+      <div class="staged-header">
+        <span class="staged-title">Files to transcribe</span>
+        <button class="btn-add-more" onclick="event.stopPropagation(); document.getElementById('file-input').click()">+ Add more</button>
+      </div>
+      <div id="staged-list" class="staged-list"></div>
+      <div class="staged-actions">
+        <label class="keep-video-toggle" onclick="event.stopPropagation()">
+          <input type="checkbox" id="keep-video-checkbox">
+          <span>Keep video for playback</span>
+        </label>
+        <div class="staged-buttons">
+          <button class="btn-secondary" onclick="clearStagedFiles()">Clear</button>
+          <button class="btn-transcribe" onclick="transcribeStagedFiles()">Transcribe</button>
+        </div>
+      </div>
+    </div>
 
     <!-- Recording UI -->
     <div id="recording-ui" class="recording-ui" style="display:none;">
@@ -170,12 +184,18 @@
 
     <!-- Transcript header -->
     <div class="transcript-header">
-      <h2 id="t-filename" class="t-filename"></h2>
+      <div class="t-filename-row">
+        <h2 id="t-filename" class="t-filename" onclick="renameTranscript()" title="Click to rename"></h2>
+        <button class="btn-rename" onclick="renameTranscript()" title="Rename">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
+        </button>
+      </div>
       <div class="t-meta">
         <span id="t-date"></span>
         <span class="meta-sep">&middot;</span>
         <span id="t-duration"></span>
       </div>
+      <div id="t-source-files" class="t-source-files" style="display:none;"></div>
       <div id="t-summary" class="t-summary"></div>
       <button id="btn-generate-summary" class="btn-generate-summary" onclick="generateSummary()" style="display:none">Generate Summary</button>
       <div id="action-items-section" class="action-items-section" style="display:none">
@@ -294,6 +314,6 @@
     </div>
   </div>
 
-  <script src="/static/app.js?v=13"></script>
+  <script src="/static/app.js?v=18"></script>
 </body>
 </html>

@@ -339,6 +339,113 @@ mark, .highlight {
   height: 16px;
 }
 
+/* === Staged Files Queue === */
+.staged-files {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+.staged-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.staged-title {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.btn-add-more {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--accent);
+  font-size: 0.82rem;
+  padding: 4px 12px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.btn-add-more:hover {
+  background: rgba(88, 166, 255, 0.1);
+}
+
+.staged-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.staged-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-sm);
+}
+
+.staged-name {
+  flex: 1;
+  font-size: 0.85rem;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.staged-size {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.staged-remove {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 1.1rem;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+}
+
+.staged-remove:hover {
+  color: var(--danger);
+}
+
+.staged-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.staged-buttons {
+  display: flex;
+  gap: 8px;
+}
+
+.btn-transcribe {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  padding: 8px 20px;
+  border-radius: var(--radius-sm);
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.btn-transcribe:hover {
+  background: var(--accent-hover);
+}
+
 /* === Upload Progress === */
 .upload-progress {
   background: var(--bg-secondary);
@@ -597,16 +704,62 @@ mark, .highlight {
   padding: 20px 0 12px;
 }
 
+.t-filename-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
 .t-filename {
   font-size: 1.2rem;
   font-weight: 700;
-  margin-bottom: 4px;
   word-break: break-word;
+  cursor: pointer;
+}
+
+.t-filename:hover {
+  color: var(--accent);
+}
+
+.btn-rename {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px;
+  flex-shrink: 0;
+}
+
+.btn-rename:hover {
+  color: var(--accent);
+}
+
+.t-filename-input {
+  font-size: 1.2rem;
+  font-weight: 700;
+  background: var(--bg-tertiary);
+  color: var(--text);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  padding: 4px 8px;
+  width: 100%;
+  outline: none;
 }
 
 .t-meta {
   font-size: 0.85rem;
   color: var(--text-secondary);
+}
+
+.t-source-files {
+  font-size: 0.82rem;
+  color: var(--accent);
+  margin-top: 6px;
+  padding: 6px 10px;
+  background: rgba(88, 166, 255, 0.08);
+  border-radius: 6px;
+  border: 1px solid rgba(88, 166, 255, 0.15);
 }
 
 .t-summary {
@@ -986,6 +1139,27 @@ mark, .highlight {
   border-left: 3px solid var(--accent);
   padding-left: 1px;
   transition: background 0.3s;
+}
+
+/* File boundary divider for combined transcripts */
+.file-boundary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 4px;
+}
+
+.file-boundary-line {
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+.file-boundary-label {
+  font-size: 0.8rem;
+  color: var(--accent);
+  white-space: nowrap;
+  font-weight: 500;
 }
 
 .btn-bookmark-filter {

@@ -25,7 +25,9 @@ def extract_speaker_embedding(audio_path: Path, utterances: list, speaker_key: s
         # Collect all audio segments for this speaker
         segments = []
         for u in utterances:
-            if u["speaker"] == speaker_key:
+            if u.get("type") == "file-boundary":
+                continue
+            if u.get("speaker") == speaker_key:
                 start_sample = int(u["start"] * sr)
                 end_sample = int(u["end"] * sr)
                 if end_sample > start_sample:

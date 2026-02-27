@@ -6,30 +6,49 @@ import shutil
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import List
 
 import aiofiles
-from deepgram import DeepgramClient
 from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.responses import FileResponse
 
-from ai import generate_summary
-from audio import extract_audio
+from audio import concat_audio, concat_video, extract_audio, get_duration
 from config import (
     ALLOWED_EXTENSIONS, AUDIO_DIR, COST_PER_MINUTE, MAX_FILE_SIZE,
     STARTING_CREDIT, STATIC_DIR, TAG_COLORS, TRANSCRIPTS_DIR, UPLOADS_DIR,
     VIDEO_EXTENSIONS, VIDEO_MEDIA_TYPES, VIDEOS_DIR,
     api_key_configured, ffmpeg_available,
 )
-from helpers import generate_copy_text, generate_full_text, merge_short_utterances
+from helpers import generate_copy_text, generate_full_text
 from storage import (
     load_tags, load_transcript, load_voiceprints,
     save_tags, save_transcript, save_voiceprints,
 )
+from transcription import (
+    attach_summary, cleanup_files, extract_duration, extract_utterances,
+    handle_transcription_error, save_upload, transcribe_audio,
+)
 from voiceprints import extract_speaker_embedding, match_speakers_to_voiceprints
 
 app = FastAPI(title="Voice Transcriber")
+
+
+def _check_prerequisites():
+    if not ffmpeg_available:
+        raise HTTPException(status_code=500, detail="ffmpeg is not installed. Please install it: brew install ffmpeg")
+    if not api_key_configured:
+        raise HTTPException(status_code=500, detail="DEEPGRAM_API_KEY not set. Copy .env.example to .env and add your key.")
+
+
+async def _match_voiceprints(audio_path, utterances, speakers):
+    try:
+        return await asyncio.to_thread(
+            match_speakers_to_voiceprints, audio_path, utterances, speakers
+        )
+    except Exception:
+        return speakers
 
 
 # --- Health ---
@@ -43,124 +62,24 @@ async def health():
 
 @app.post("/api/transcribe")
 async def transcribe(file: UploadFile = File(...), keep_video: bool = Form(False)):
-    if not ffmpeg_available:
-        raise HTTPException(status_code=500, detail="ffmpeg is not installed. Please install it: brew install ffmpeg")
-    if not api_key_configured:
-        raise HTTPException(status_code=500, detail="DEEPGRAM_API_KEY not set. Copy .env.example to .env and add your key.")
+    _check_prerequisites()
 
-    ext = Path(file.filename or "").suffix.lower()
-    if ext not in ALLOWED_EXTENSIONS:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Unsupported format '{ext}'. Supported: {', '.join(sorted(ALLOWED_EXTENSIONS))}",
-        )
-
-    file_id = uuid.uuid4().hex
-    upload_path = UPLOADS_DIR / f"{file_id}{ext}"
-    wav_path = UPLOADS_DIR / f"{file_id}.wav"
+    upload_path, ext = await save_upload(file, UPLOADS_DIR)
+    wav_path = upload_path.with_suffix(".wav")
 
     try:
-        async with aiofiles.open(upload_path, "wb") as out:
-            total = 0
-            while chunk := await file.read(1024 * 1024):
-                total += len(chunk)
-                if total > MAX_FILE_SIZE:
-                    raise HTTPException(status_code=413, detail="File too large. Maximum size is 2GB.")
-                await out.write(chunk)
-
         await asyncio.to_thread(extract_audio, upload_path, wav_path)
+        result = await transcribe_audio(wav_path)
 
-        dg_client = DeepgramClient(api_key=os.getenv("DEEPGRAM_API_KEY"))
-        with open(wav_path, "rb") as audio_file:
-            audio_data = audio_file.read()
-
-        response = await asyncio.to_thread(
-            dg_client.listen.v1.media.transcribe_file,
-            request=audio_data,
-            model="nova-3",
-            diarize=True, punctuate=True, paragraphs=True,
-            utterances=True, smart_format=True,
-        )
-
-        result = response.model_dump()
-
-        # Extract duration
-        duration = 0
-        if "metadata" in result and "duration" in result["metadata"]:
-            duration = result["metadata"]["duration"]
-        elif "results" in result and "channels" in result["results"]:
-            channels = result["results"]["channels"]
-            if channels and "alternatives" in channels[0] and channels[0]["alternatives"]:
-                words = channels[0]["alternatives"][0].get("words", [])
-                if words:
-                    duration = words[-1].get("end", 0)
-
-        # Extract utterances
-        utterances = []
-        speaker_set = set()
-        raw_utterances = result.get("results", {}).get("utterances", [])
-
-        for u in raw_utterances:
-            speaker_label = f"Speaker {u.get('speaker', 0) + 1}"
-            speaker_set.add(speaker_label)
-            utterances.append({
-                "speaker": speaker_label,
-                "text": u.get("transcript", ""),
-                "start": u.get("start", 0),
-                "end": u.get("end", 0),
-            })
-
-        # Fallback: build from words if no utterances
-        if not utterances:
-            channels = result.get("results", {}).get("channels", [])
-            if channels:
-                words = channels[0].get("alternatives", [{}])[0].get("words", [])
-                current_speaker = None
-                current_text = []
-                current_start = 0
-                current_end = 0
-                for w in words:
-                    sp = f"Speaker {w.get('speaker', 0) + 1}"
-                    if sp != current_speaker:
-                        if current_speaker and current_text:
-                            speaker_set.add(current_speaker)
-                            utterances.append({
-                                "speaker": current_speaker,
-                                "text": " ".join(current_text),
-                                "start": current_start,
-                                "end": current_end,
-                            })
-                        current_speaker = sp
-                        current_text = [w.get("punctuated_word", w.get("word", ""))]
-                        current_start = w.get("start", 0)
-                        current_end = w.get("end", 0)
-                    else:
-                        current_text.append(w.get("punctuated_word", w.get("word", "")))
-                        current_end = w.get("end", 0)
-                if current_speaker and current_text:
-                    speaker_set.add(current_speaker)
-                    utterances.append({
-                        "speaker": current_speaker,
-                        "text": " ".join(current_text),
-                        "start": current_start,
-                        "end": current_end,
-                    })
-
-        utterances = merge_short_utterances(utterances)
-        speakers = {s: s for s in sorted(speaker_set)}
+        duration = extract_duration(result)
+        utterances, speakers = extract_utterances(result)
 
         transcript_id = str(uuid.uuid4())
         audio_filename = f"{transcript_id}.wav"
         audio_dest = AUDIO_DIR / audio_filename
         shutil.move(str(wav_path), str(audio_dest))
 
-        # Auto-match speakers to known voiceprints
-        try:
-            speakers = await asyncio.to_thread(
-                match_speakers_to_voiceprints, audio_dest, utterances, speakers
-            )
-        except Exception:
-            pass
+        speakers = await _match_voiceprints(audio_dest, utterances, speakers)
 
         transcript = {
             "id": transcript_id,
@@ -178,43 +97,117 @@ async def transcribe(file: UploadFile = File(...), keep_video: bool = Form(False
             shutil.copy2(str(upload_path), str(VIDEOS_DIR / video_filename))
             transcript["video_file"] = video_filename
 
-        # Generate summary + action items
-        summary_result = await asyncio.to_thread(generate_summary, transcript["full_text"])
-        if summary_result:
-            transcript["summary"] = summary_result["text"]
-            transcript["summary_usage"] = {
-                "input_tokens": summary_result["input_tokens"],
-                "output_tokens": summary_result["output_tokens"],
-                "cost": summary_result["cost"],
-            }
-            transcript["action_items"] = [
-                {"text": item, "status": "pending"}
-                for item in summary_result.get("action_items", [])
-            ]
-
+        await attach_summary(transcript)
         save_transcript(transcript)
         return transcript
 
     except HTTPException:
         raise
     except Exception as e:
-        error_msg = str(e).lower()
-        if "invalid credentials" in error_msg or "401" in error_msg:
-            raise HTTPException(status_code=401, detail="Your Deepgram API key seems invalid. Check your .env file.")
-        if "rate limit" in error_msg or "429" in error_msg:
-            raise HTTPException(status_code=429, detail="Too many requests. Wait a moment and try again.")
-        if "too short" in error_msg:
-            raise HTTPException(status_code=400, detail="The audio file seems too short to transcribe.")
-        if "connection" in error_msg or "network" in error_msg or "resolve" in error_msg:
-            raise HTTPException(status_code=502, detail="Couldn't reach Deepgram. Check your internet connection.")
-        raise HTTPException(status_code=500, detail=f"Transcription failed: {str(e)[:300]}")
+        raise handle_transcription_error(e)
     finally:
-        for p in [upload_path, wav_path]:
-            try:
-                if p.exists():
-                    p.unlink()
-            except Exception:
-                pass
+        cleanup_files(upload_path, wav_path)
+
+
+# --- Multi-file Transcription ---
+
+@app.post("/api/transcribe-multi")
+async def transcribe_multi(files: List[UploadFile] = File(...), keep_video: bool = Form(False)):
+    _check_prerequisites()
+    if len(files) < 2:
+        raise HTTPException(status_code=400, detail="Need at least 2 files to combine.")
+
+    upload_paths = []
+    wav_paths = []
+    filenames = []
+    combined_wav = None
+
+    try:
+        # Save and extract audio from each file
+        for f in files:
+            upload_path, ext = await save_upload(f, UPLOADS_DIR)
+            wav_path = upload_path.with_suffix(".wav")
+            await asyncio.to_thread(extract_audio, upload_path, wav_path)
+            upload_paths.append(upload_path)
+            wav_paths.append(wav_path)
+            filenames.append(f.filename or "unknown")
+
+        # Get duration of each WAV to know file boundaries
+        durations = []
+        for wp in wav_paths:
+            durations.append(await asyncio.to_thread(get_duration, wp))
+
+        # Concatenate all WAVs and transcribe
+        combined_wav = UPLOADS_DIR / f"{uuid.uuid4().hex}_combined.wav"
+        await asyncio.to_thread(concat_audio, wav_paths, combined_wav)
+        result = await transcribe_audio(combined_wav)
+
+        duration = extract_duration(result)
+        utterances, speakers = extract_utterances(result)
+
+        # Insert file-boundary markers between files
+        offset = 0
+        boundaries = []
+        for i, dur in enumerate(durations):
+            offset += dur
+            if i < len(durations) - 1:
+                boundaries.append({"start": round(offset, 2), "filename": filenames[i + 1]})
+
+        for boundary in reversed(boundaries):
+            insert_idx = len(utterances)
+            for j, u in enumerate(utterances):
+                if u.get("start", 0) >= boundary["start"]:
+                    insert_idx = j
+                    break
+            utterances.insert(insert_idx, {
+                "type": "file-boundary",
+                "filename": boundary["filename"],
+                "start": boundary["start"],
+            })
+
+        transcript_id = str(uuid.uuid4())
+        audio_filename = f"{transcript_id}.wav"
+        audio_dest = AUDIO_DIR / audio_filename
+        shutil.move(str(combined_wav), str(audio_dest))
+
+        speakers = await _match_voiceprints(audio_dest, utterances, speakers)
+
+        transcript = {
+            "id": transcript_id,
+            "filename": " + ".join(filenames),
+            "source_files": filenames,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "duration_seconds": round(duration, 2),
+            "speakers": speakers,
+            "utterances": utterances,
+            "full_text": generate_full_text(utterances, speakers),
+            "audio_file": audio_filename,
+        }
+
+        # Concatenate videos if requested
+        if keep_video:
+            video_uploads = [p for p in upload_paths if p.suffix.lower() in VIDEO_EXTENSIONS]
+            if len(video_uploads) >= 2:
+                video_filename = f"{transcript_id}.mp4"
+                await asyncio.to_thread(concat_video, video_uploads, VIDEOS_DIR / video_filename)
+                transcript["video_file"] = video_filename
+            elif len(video_uploads) == 1:
+                video_filename = f"{transcript_id}{video_uploads[0].suffix}"
+                shutil.copy2(str(video_uploads[0]), str(VIDEOS_DIR / video_filename))
+                transcript["video_file"] = video_filename
+
+        await attach_summary(transcript)
+        save_transcript(transcript)
+        return transcript
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise handle_transcription_error(e)
+    finally:
+        cleanup_files(*upload_paths, *wav_paths)
+        if combined_wav:
+            cleanup_files(combined_wav)
 
 
 # --- Transcript CRUD ---
@@ -222,7 +215,7 @@ async def transcribe(file: UploadFile = File(...), keep_video: bool = Form(False
 @app.get("/api/transcripts")
 async def list_transcripts():
     transcripts = []
-    for f in sorted(TRANSCRIPTS_DIR.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True):
+    for f in TRANSCRIPTS_DIR.glob("*.json"):
         try:
             with open(f) as fh:
                 data = json.load(fh)
@@ -237,12 +230,25 @@ async def list_transcripts():
                 })
         except (json.JSONDecodeError, KeyError):
             continue
+    transcripts.sort(key=lambda t: t["created_at"], reverse=True)
     return transcripts
 
 
 @app.get("/api/transcripts/{transcript_id}")
 async def get_transcript(transcript_id: str):
     return load_transcript(transcript_id)
+
+
+@app.patch("/api/transcripts/{transcript_id}/rename")
+async def rename_transcript(transcript_id: str, request: Request):
+    body = await request.json()
+    name = body.get("filename", "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Filename cannot be empty")
+    transcript = load_transcript(transcript_id)
+    transcript["filename"] = name
+    save_transcript(transcript)
+    return {"filename": name}
 
 
 @app.delete("/api/transcripts/{transcript_id}")
@@ -291,6 +297,7 @@ async def toggle_bookmark(transcript_id: str, request: Request):
 
 @app.post("/api/transcripts/{transcript_id}/summary")
 async def generate_transcript_summary(transcript_id: str):
+    from ai import generate_summary
     transcript = load_transcript(transcript_id)
     if not transcript.get("full_text"):
         raise HTTPException(status_code=400, detail="No text to summarize")
@@ -509,6 +516,8 @@ async def search_transcripts(q: str = Query(..., min_length=1)):
             snippets.append({"source": "summary", "text": summary})
 
         for u in data.get("utterances", []):
+            if u.get("type") == "file-boundary":
+                continue
             if query in u.get("text", "").lower():
                 speaker = data.get("speakers", {}).get(u["speaker"], u["speaker"])
                 snippets.append({
