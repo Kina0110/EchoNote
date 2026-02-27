@@ -33,6 +33,8 @@ def generate_full_text(utterances: list, speakers: dict) -> str:
     """Build the full_text field from utterances with speaker name mapping."""
     lines = []
     for u in utterances:
+        if u.get("type") == "file-boundary":
+            continue
         display_name = speakers.get(u["speaker"], u["speaker"])
         lines.append(f"{display_name}: {u['text']}")
     return "\n".join(lines)
@@ -66,6 +68,9 @@ def generate_copy_text(transcript: dict) -> str:
     ]
 
     for u in transcript["utterances"]:
+        if u.get("type") == "file-boundary":
+            lines.append(f"\n--- {u['filename']} ---\n")
+            continue
         display_name = speakers.get(u["speaker"], u["speaker"])
         ts = format_timestamp(u["start"])
         lines.append(f"{ts} {display_name}: {u['text']}")
