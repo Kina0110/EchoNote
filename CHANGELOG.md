@@ -1,0 +1,71 @@
+# Changelog
+
+## 2026-02-26
+
+### Multi-file combine & upload queue
+- Upload multiple recordings from the same meeting and combine them into one transcript
+- Files are stitched together with ffmpeg — audio plays back seamlessly
+- File-boundary markers show where each recording starts in the transcript
+- "Combined from: file1, file2" note displayed at the top
+- New staged upload UI: pick files one at a time, review the list, then tap "Transcribe"
+- Works on iPhone — no more instant upload when selecting a file
+
+### Rename transcripts
+- Tap the title (or pencil icon) on any transcript to rename it
+- New `PATCH /api/transcripts/:id/rename` endpoint
+
+### Code refactor
+- Extracted shared transcription logic into `transcription.py` (Deepgram calls, utterance parsing, error handling, file cleanup)
+- Both single and multi-file endpoints use shared helpers — no duplicated code
+- All utterance iterators (search, export, voiceprints, copy text) handle file-boundary entries
+
+### Fixes
+- Transcripts now sorted by `created_at` date instead of file modification time
+- iPhone audio playback: handled iOS Safari autoplay restrictions, wait for audio load before seeking
+- SRT export skips file-boundary entries and numbers correctly
+
+---
+
+## 2026-02-24
+
+### Action items & voice recognition
+- AI-generated action items extracted from transcripts (accept, dismiss, delete)
+- Click an action item to highlight the related section in the transcript
+- Automatic speaker identification using voice fingerprints (resemblyzer)
+- Rename a speaker and their voice embedding is saved for future matching
+- GPT-5 integration for summaries and action items
+- Modular refactor: split code into `ai.py`, `voiceprints.py`, `storage.py`, `helpers.py`
+
+### Housekeeping
+- Hardened `.gitignore` to block all media, logs, and data files
+- Added `AGENTS.md` with coding rules for AI dev tools (Claude Code, OpenCode, Aider)
+
+---
+
+## 2026-02-21
+
+### Bookmarks, playback speed & summaries
+- Bookmark utterances and filter to show only bookmarked
+- Playback speed control: 1x, 1.25x, 1.5x, 2x
+- AI summary generation (GPT-5) with manual trigger button
+- Short utterance merging: consecutive same-speaker lines under 8 words are combined
+
+### Tagging & live recording
+- Tag transcripts with color-coded labels
+- Filter transcript list by tag
+- "Copy All for ChatGPT" exports all transcripts with a selected tag
+- Live audio recording directly in the browser
+- Progressive backup downloads every 30 seconds during recording
+- Auto-downloads transcript text after recording completes
+
+### Initial release
+- Upload audio/video files for transcription (Deepgram Nova-3)
+- Automatic speaker diarization
+- Click-to-rename speaker labels
+- Built-in audio player synced to transcript with click-to-seek
+- In-transcript search with match navigation
+- Global search across all transcripts
+- Export as `.txt` or `.srt`
+- "Copy for ChatGPT" formatted export
+- Usage & cost tracking dashboard
+- Dark mode UI, mobile-friendly

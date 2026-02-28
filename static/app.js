@@ -23,6 +23,9 @@ let activeTagFilter = null;
 let allTags = {};
 let allTranscripts = [];
 
+// Staged files for multi-upload
+let stagedFiles = [];
+
 const SPEAKER_COLORS = [
   '#58a6ff', '#f78166', '#7ee787', '#d2a8ff',
   '#ff7b72', '#79c0ff', '#ffa657', '#a5d6ff',
@@ -75,18 +78,81 @@ function setupDragDrop() {
   zone.addEventListener('drop', (e) => {
     e.preventDefault();
     zone.classList.remove('dragover');
-    const files = e.dataTransfer.files;
-    if (files.length > 0) uploadFile(files[0]);
+    const files = Array.from(e.dataTransfer.files);
+    if (files.length > 0) stageFiles(files);
   });
 }
 
 function setupFileInput() {
   document.getElementById('file-input').addEventListener('change', (e) => {
-    if (e.target.files.length > 0) {
-      uploadFile(e.target.files[0]);
-      e.target.value = '';
-    }
+    const files = Array.from(e.target.files);
+    if (files.length > 0) stageFiles(files);
+    e.target.value = '';
   });
+}
+
+function stageFiles(newFiles) {
+  const allowed = ['.mp4', '.mov', '.avi', '.mkv', '.webm', '.mp3', '.wav', '.m4a', '.ogg', '.flac', '.aac', '.wma'];
+  for (const file of newFiles) {
+    const ext = '.' + file.name.split('.').pop().toLowerCase();
+    if (!allowed.includes(ext)) {
+      toast(`Unsupported format: ${file.name}`, 'error');
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024 * 1024) {
+      toast(`File too large: ${file.name}`, 'error');
+      return;
+    }
+  }
+  stagedFiles = stagedFiles.concat(newFiles);
+  renderStagedFiles();
+}
+
+function renderStagedFiles() {
+  const container = document.getElementById('staged-files');
+  const list = document.getElementById('staged-list');
+  const zone = document.getElementById('upload-zone');
+
+  if (stagedFiles.length === 0) {
+    container.style.display = 'none';
+    zone.style.display = '';
+    return;
+  }
+
+  zone.style.display = 'none';
+  container.style.display = '';
+
+  list.innerHTML = stagedFiles.map((f, i) => {
+    const sizeMB = (f.size / (1024 * 1024)).toFixed(1);
+    return `
+      <div class="staged-item">
+        <span class="staged-name">${escapeHtml(f.name)}</span>
+        <span class="staged-size">${sizeMB} MB</span>
+        <button class="staged-remove" onclick="removeStagedFile(${i})">&times;</button>
+      </div>
+    `;
+  }).join('');
+}
+
+function removeStagedFile(index) {
+  stagedFiles.splice(index, 1);
+  renderStagedFiles();
+}
+
+function clearStagedFiles() {
+  stagedFiles = [];
+  renderStagedFiles();
+}
+
+function transcribeStagedFiles() {
+  if (stagedFiles.length === 0) return;
+  if (stagedFiles.length === 1) {
+    uploadFile(stagedFiles[0]);
+  } else {
+    uploadMultipleFiles(stagedFiles);
+  }
+  stagedFiles = [];
+  document.getElementById('staged-files').style.display = 'none';
 }
 
 function setupKeyboardShortcut() {
@@ -194,6 +260,96 @@ async function uploadFile(file) {
 
     showTranscript(result);
     loadTranscripts(); // Refresh the list
+  } catch (e) {
+    toast(e.message, 'error');
+    progress.style.display = 'none';
+    zone.style.display = '';
+  }
+}
+
+// === Multi-file Upload ===
+async function uploadMultipleFiles(fileList) {
+  const zone = document.getElementById('upload-zone');
+  const progress = document.getElementById('upload-progress');
+  const progressText = document.getElementById('progress-text');
+  const progressBar = document.getElementById('progress-bar');
+
+  const files = Array.from(fileList);
+  const allowed = ['.mp4', '.mov', '.avi', '.mkv', '.webm', '.mp3', '.wav', '.m4a', '.ogg', '.flac', '.aac', '.wma'];
+
+  for (const file of files) {
+    const ext = '.' + file.name.split('.').pop().toLowerCase();
+    if (!allowed.includes(ext)) {
+      toast(`Unsupported format: ${file.name}`, 'error');
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024 * 1024) {
+      toast(`File too large: ${file.name}`, 'error');
+      return;
+    }
+  }
+
+  zone.style.display = 'none';
+  progress.style.display = 'block';
+  progressText.textContent = `Uploading ${files.length} files...`;
+  progressBar.style.width = '0%';
+
+  const formData = new FormData();
+  for (const file of files) {
+    formData.append('files', file);
+  }
+  const keepVideo = document.getElementById('keep-video-checkbox');
+  if (keepVideo && keepVideo.checked) {
+    formData.append('keep_video', 'true');
+  }
+
+  try {
+    const xhr = new XMLHttpRequest();
+
+    xhr.upload.addEventListener('progress', (e) => {
+      if (e.lengthComputable) {
+        const pct = Math.round((e.loaded / e.total) * 100);
+        progressBar.style.width = pct + '%';
+        if (pct >= 100) {
+          progressText.textContent = 'Combining audio...';
+        }
+      }
+    });
+
+    const result = await new Promise((resolve, reject) => {
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          resolve(JSON.parse(xhr.responseText));
+        } else {
+          try {
+            const err = JSON.parse(xhr.responseText);
+            reject(new Error(err.detail || 'Upload failed'));
+          } catch {
+            reject(new Error('Upload failed'));
+          }
+        }
+      };
+      xhr.onerror = () => reject(new Error('Network error'));
+
+      xhr.upload.addEventListener('loadend', () => {
+        progressText.textContent = 'Combining & transcribing with AI...';
+        progressBar.style.width = '100%';
+      });
+
+      xhr.open('POST', '/api/transcribe-multi');
+      xhr.send(formData);
+    });
+
+    progressText.textContent = 'Done!';
+    toast('Combined transcription complete!', 'success');
+
+    await sleep(500);
+
+    progress.style.display = 'none';
+    zone.style.display = '';
+
+    showTranscript(result);
+    loadTranscripts();
   } catch (e) {
     toast(e.message, 'error');
     progress.style.display = 'none';
@@ -567,6 +723,15 @@ function showTranscript(transcript) {
   });
   document.getElementById('t-duration').textContent = formatDuration(transcript.duration_seconds);
 
+  // Show source files note for combined transcripts
+  const sourceFilesEl = document.getElementById('t-source-files');
+  if (transcript.source_files && transcript.source_files.length > 1) {
+    sourceFilesEl.textContent = 'Combined from: ' + transcript.source_files.join(', ');
+    sourceFilesEl.style.display = '';
+  } else {
+    sourceFilesEl.style.display = 'none';
+  }
+
   const summaryEl = document.getElementById('t-summary');
   const summaryBtn = document.getElementById('btn-generate-summary');
   summaryEl.textContent = transcript.summary || '';
@@ -610,6 +775,17 @@ function renderUtterances() {
   const bookmarks = currentTranscript.bookmarks || [];
 
   container.innerHTML = currentTranscript.utterances.map((u, i) => {
+    // Render file-boundary dividers for combined transcripts
+    if (u.type === 'file-boundary') {
+      return `
+        <div class="file-boundary" data-index="${i}">
+          <div class="file-boundary-line"></div>
+          <span class="file-boundary-label">${escapeHtml(u.filename)}</span>
+          <div class="file-boundary-line"></div>
+        </div>
+      `;
+    }
+
     const idx = speakers.indexOf(u.speaker);
     const color = SPEAKER_COLORS[(idx >= 0 ? idx : 0) % SPEAKER_COLORS.length];
     const displayName = currentTranscript.speakers[u.speaker] || u.speaker;
@@ -654,6 +830,47 @@ function toggleBookmarkFilter() {
   const btn = document.getElementById('btn-bookmark-filter');
   btn.classList.toggle('active', bookmarkFilterActive);
   renderUtterances();
+}
+
+function renameTranscript() {
+  if (!currentTranscript) return;
+  const el = document.getElementById('t-filename');
+  const current = currentTranscript.filename;
+
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.value = current;
+  input.className = 't-filename-input';
+
+  el.textContent = '';
+  el.appendChild(input);
+  input.focus();
+  input.select();
+
+  async function save() {
+    const newName = input.value.trim() || current;
+    el.textContent = newName;
+    if (newName !== current) {
+      try {
+        await fetch(`/api/transcripts/${currentTranscript.id}/rename`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ filename: newName })
+        });
+        currentTranscript.filename = newName;
+        loadTranscripts();
+      } catch (e) {
+        toast('Rename failed', 'error');
+        el.textContent = current;
+      }
+    }
+  }
+
+  input.addEventListener('blur', save);
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') input.blur();
+    if (e.key === 'Escape') { input.value = current; input.blur(); }
+  });
 }
 
 function renameSpeaker(speakerKey, chipEl) {
@@ -805,6 +1022,7 @@ function highlightActionSource(index) {
   let bestIdx = -1;
   let bestScore = 0;
   currentTranscript.utterances.forEach((u, i) => {
+    if (u.type === 'file-boundary') return;
     const text = u.text.toLowerCase();
     let score = 0;
     keywords.forEach(kw => {
@@ -860,11 +1078,14 @@ function exportTxt() {
 function exportSrt() {
   if (!currentTranscript) return;
   let srt = '';
-  currentTranscript.utterances.forEach((u, i) => {
+  let srtIndex = 1;
+  currentTranscript.utterances.forEach((u) => {
+    if (u.type === 'file-boundary') return;
     const startSrt = toSrtTime(u.start);
     const endSrt = toSrtTime(u.end);
     const name = currentTranscript.speakers[u.speaker] || u.speaker;
-    srt += `${i + 1}\n${startSrt} --> ${endSrt}\n${name}: ${u.text}\n\n`;
+    srt += `${srtIndex}\n${startSrt} --> ${endSrt}\n${name}: ${u.text}\n\n`;
+    srtIndex++;
   });
   downloadFile(srt, currentTranscript.filename.replace(/\.[^.]+$/, '') + '.srt', 'text/srt');
 }
@@ -1274,7 +1495,8 @@ function togglePlayback() {
   const media = getMediaElement();
   if (!media.src || media.src === window.location.href) return;
   if (media.paused) {
-    media.play();
+    const p = media.play();
+    if (p) p.catch(() => {});
   } else {
     media.pause();
   }
@@ -1283,10 +1505,22 @@ function togglePlayback() {
 function seekToUtterance(startTime) {
   const media = getMediaElement();
   if (!media.src || media.src === window.location.href) return;
+
+  // On iOS, if media hasn't loaded yet, wait for it
+  if (media.readyState < 1) {
+    media.addEventListener('loadedmetadata', function onReady() {
+      media.removeEventListener('loadedmetadata', onReady);
+      media.currentTime = startTime;
+    });
+    media.load();
+    return;
+  }
+
   media.currentTime = startTime;
   autoScrollEnabled = true;
   if (media.paused) {
-    media.play();
+    const p = media.play();
+    if (p) p.catch(() => {});
   }
   updatePlayerUI();
 }
