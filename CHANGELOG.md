@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-03-04
+
+- Fix clipboard copy on iPhone Safari (fallback for HTTP/non-secure contexts)
+- Improve utterance merging: consecutive same-speaker utterances within 15s are now combined (was only merging short fragments under 8 words within 5s)
+- Make audio player sticky so it follows you when scrolling long transcripts
+
+---
+
 ## 2026-02-26
 
 ### Multi-file combine & upload queue

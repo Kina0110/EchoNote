@@ -956,6 +956,9 @@ mark, .highlight {
   border-radius: var(--radius);
   padding: 14px 16px;
   margin-top: 8px;
+  position: sticky;
+  top: 57px;
+  z-index: 99;
 }
 .video-player {
   width: 100%;

@@ -568,7 +568,7 @@ async function copyAllByTag() {
   try {
     const res = await fetch(`/api/transcripts/copy-by-tag?tag=${encodeURIComponent(activeTagFilter)}`);
     const text = await res.text();
-    await navigator.clipboard.writeText(text);
+    await copyToClipboard(text);
     toast('All matching transcripts copied!', 'success');
   } catch (e) {
     toast('Failed to copy: ' + e.message, 'error');
@@ -1054,12 +1054,31 @@ function highlightActionSource(index) {
   }
 }
 
+function copyToClipboard(text) {
+  if (navigator.clipboard && window.isSecureContext) {
+    return navigator.clipboard.writeText(text);
+  }
+  // Fallback for iOS Safari over HTTP
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.position = 'fixed';
+  ta.style.left = '-9999px';
+  ta.style.opacity = '0';
+  document.body.appendChild(ta);
+  ta.focus();
+  ta.select();
+  ta.setSelectionRange(0, text.length);
+  document.execCommand('copy');
+  document.body.removeChild(ta);
+  return Promise.resolve();
+}
+
 async function copyForChatGPT() {
   if (!currentTranscript) return;
   try {
     const res = await fetch(`/api/transcripts/${currentTranscript.id}/copytext`);
     const text = await res.text();
-    await navigator.clipboard.writeText(text);
+    await copyToClipboard(text);
     toast('Copied to clipboard!', 'success');
   } catch (e) {
     toast('Failed to copy: ' + e.message, 'error');

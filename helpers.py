@@ -11,17 +11,16 @@ def format_timestamp(seconds: float) -> str:
     return f"[{m:02d}:{s:02d}]"
 
 
-def merge_short_utterances(utterances: list, min_words: int = 8, max_gap: float = 5.0) -> list:
-    """Merge consecutive same-speaker utterances that are too short, within a time gap."""
+def merge_short_utterances(utterances: list, max_gap: float = 15.0) -> list:
+    """Merge consecutive same-speaker utterances within a time gap."""
     if not utterances:
         return utterances
     merged = [dict(utterances[0])]
     for u in utterances[1:]:
         prev = merged[-1]
-        prev_words = len(prev["text"].split())
         same_speaker = u["speaker"] == prev["speaker"]
         gap = u["start"] - prev["end"]
-        if same_speaker and prev_words < min_words and gap <= max_gap:
+        if same_speaker and gap <= max_gap:
             prev["text"] = prev["text"].rstrip(",. ") + " " + u["text"]
             prev["end"] = u["end"]
         else:
