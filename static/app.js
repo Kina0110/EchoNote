@@ -177,37 +177,21 @@ function setupKeyboardShortcut() {
 }
 
 // === Upload ===
-async function uploadFile(file) {
+async function _uploadAndTranscribe(formData, endpoint, { uploadLabel, processingLabel, doneLabel }) {
   const zone = document.getElementById('upload-zone');
   const progress = document.getElementById('upload-progress');
   const progressText = document.getElementById('progress-text');
   const progressBar = document.getElementById('progress-bar');
 
-  // Validate extension
-  const ext = '.' + file.name.split('.').pop().toLowerCase();
-  const allowed = ['.mp4', '.mov', '.avi', '.mkv', '.webm', '.mp3', '.wav', '.m4a', '.ogg', '.flac', '.aac', '.wma'];
-  if (!allowed.includes(ext)) {
-    toast(`Unsupported format. Supported: ${allowed.join(', ')}`, 'error');
-    return;
-  }
-
-  // Validate size
-  if (file.size > 2 * 1024 * 1024 * 1024) {
-    toast('File too large. Maximum size is 2GB.', 'error');
-    return;
-  }
-
-  zone.style.display = 'none';
-  progress.style.display = 'block';
-  progressText.textContent = 'Uploading file...';
-  progressBar.style.width = '0%';
-
-  const formData = new FormData();
-  formData.append('file', file);
   const keepVideo = document.getElementById('keep-video-checkbox');
   if (keepVideo && keepVideo.checked) {
     formData.append('keep_video', 'true');
   }
+
+  zone.style.display = 'none';
+  progress.style.display = 'block';
+  progressText.textContent = uploadLabel;
+  progressBar.style.width = '0%';
 
   try {
     const xhr = new XMLHttpRequest();
@@ -217,7 +201,7 @@ async function uploadFile(file) {
         const pct = Math.round((e.loaded / e.total) * 100);
         progressBar.style.width = pct + '%';
         if (pct >= 100) {
-          progressText.textContent = 'Processing audio...';
+          progressText.textContent = processingLabel;
         }
       }
     });
@@ -237,20 +221,38 @@ async function uploadFile(file) {
       };
       xhr.onerror = () => reject(new Error('Network error'));
 
-      // Show transcription status after upload completes
       xhr.upload.addEventListener('loadend', () => {
-        progressText.textContent = 'Transcribing with AI...';
+        progressText.textContent = processingLabel;
         progressBar.style.width = '100%';
       });
 
-      xhr.open('POST', '/api/transcribe');
+      xhr.open('POST', endpoint);
       xhr.send(formData);
     });
 
     progressText.textContent = 'Done!';
     const durMin = (result.duration_seconds || 0) / 60;
     const estCost = (durMin * 0.0092).toFixed(2);
-    toast(`Transcription complete! ${Math.round(durMin)} min · ~$${estCost}`, 'success');
+    toast(`${doneLabel} ${Math.round(durMin)} min · ~$${estCost}`, 'success');
+
+    return result;
+  } finally {
+    await sleep(500);
+    progress.style.display = 'none';
+    zone.style.display = '';
+  }
+}
+
+async function uploadFile(file) {
+  const formData = new FormData();
+  formData.append('file', file);
+
+  try {
+    const result = await _uploadAndTranscribe(formData, '/api/transcribe', {
+      uploadLabel: 'Uploading file...',
+      processingLabel: 'Transcribing with AI...',
+      doneLabel: 'Transcription complete!',
+    });
 
     // Auto-download transcript text if this came from a recording
     if (pendingRecordingSessionId) {
@@ -262,110 +264,31 @@ async function uploadFile(file) {
       pendingRecordingSessionId = '';
     }
 
-    // Brief pause to show "Done!" then navigate
-    await sleep(500);
-
-    progress.style.display = 'none';
-    zone.style.display = '';
-
     showTranscript(result);
-    loadTranscripts(); // Refresh the list
+    loadTranscripts();
   } catch (e) {
     toast(e.message, 'error');
-    progress.style.display = 'none';
-    zone.style.display = '';
   }
 }
 
-// === Multi-file Upload ===
 async function uploadMultipleFiles(fileList) {
-  const zone = document.getElementById('upload-zone');
-  const progress = document.getElementById('upload-progress');
-  const progressText = document.getElementById('progress-text');
-  const progressBar = document.getElementById('progress-bar');
-
   const files = Array.from(fileList);
-  const allowed = ['.mp4', '.mov', '.avi', '.mkv', '.webm', '.mp3', '.wav', '.m4a', '.ogg', '.flac', '.aac', '.wma'];
-
-  for (const file of files) {
-    const ext = '.' + file.name.split('.').pop().toLowerCase();
-    if (!allowed.includes(ext)) {
-      toast(`Unsupported format: ${file.name}`, 'error');
-      return;
-    }
-    if (file.size > 2 * 1024 * 1024 * 1024) {
-      toast(`File too large: ${file.name}`, 'error');
-      return;
-    }
-  }
-
-  zone.style.display = 'none';
-  progress.style.display = 'block';
-  progressText.textContent = `Uploading ${files.length} files...`;
-  progressBar.style.width = '0%';
-
   const formData = new FormData();
   for (const file of files) {
     formData.append('files', file);
   }
-  const keepVideo = document.getElementById('keep-video-checkbox');
-  if (keepVideo && keepVideo.checked) {
-    formData.append('keep_video', 'true');
-  }
 
   try {
-    const xhr = new XMLHttpRequest();
-
-    xhr.upload.addEventListener('progress', (e) => {
-      if (e.lengthComputable) {
-        const pct = Math.round((e.loaded / e.total) * 100);
-        progressBar.style.width = pct + '%';
-        if (pct >= 100) {
-          progressText.textContent = 'Combining audio...';
-        }
-      }
+    const result = await _uploadAndTranscribe(formData, '/api/transcribe-multi', {
+      uploadLabel: `Uploading ${files.length} files...`,
+      processingLabel: 'Combining & transcribing with AI...',
+      doneLabel: 'Combined transcription complete!',
     });
-
-    const result = await new Promise((resolve, reject) => {
-      xhr.onload = () => {
-        if (xhr.status >= 200 && xhr.status < 300) {
-          resolve(JSON.parse(xhr.responseText));
-        } else {
-          try {
-            const err = JSON.parse(xhr.responseText);
-            reject(new Error(err.detail || 'Upload failed'));
-          } catch {
-            reject(new Error('Upload failed'));
-          }
-        }
-      };
-      xhr.onerror = () => reject(new Error('Network error'));
-
-      xhr.upload.addEventListener('loadend', () => {
-        progressText.textContent = 'Combining & transcribing with AI...';
-        progressBar.style.width = '100%';
-      });
-
-      xhr.open('POST', '/api/transcribe-multi');
-      xhr.send(formData);
-    });
-
-    progressText.textContent = 'Done!';
-    const mDurMin = (result.duration_seconds || 0) / 60;
-    const mEstCost = (mDurMin * 0.0092).toFixed(2);
-    toast(`Combined transcription complete! ${Math.round(mDurMin)} min · ~$${mEstCost}`, 'success');
-
-    await sleep(500);
-
-    progress.style.display = 'none';
-    zone.style.display = '';
 
     showTranscript(result);
     loadTranscripts();
   } catch (e) {
     toast(e.message, 'error');
-    progress.style.display = 'none';
-    zone.style.display = '';
   }
 }
 

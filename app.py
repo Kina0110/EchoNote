@@ -23,7 +23,7 @@ from config import (
 )
 from helpers import generate_copy_text, generate_full_text, merge_short_utterances
 from storage import (
-    load_settings, load_tags, load_transcript, load_voiceprints,
+    iter_transcripts, load_settings, load_tags, load_transcript, load_voiceprints,
     save_settings, save_tags, save_transcript, save_voiceprints,
 )
 from transcription import (
@@ -214,22 +214,18 @@ async def transcribe_multi(files: List[UploadFile] = File(...), keep_video: bool
 
 @app.get("/api/transcripts")
 async def list_transcripts():
-    transcripts = []
-    for f in TRANSCRIPTS_DIR.glob("*.json"):
-        try:
-            with open(f) as fh:
-                data = json.load(fh)
-                transcripts.append({
-                    "id": data["id"],
-                    "filename": data["filename"],
-                    "created_at": data["created_at"],
-                    "duration_seconds": data.get("duration_seconds", 0),
-                    "num_speakers": len(data.get("speakers", {})),
-                    "summary": data.get("summary", ""),
-                    "tags": data.get("tags", []),
-                })
-        except (json.JSONDecodeError, KeyError):
-            continue
+    transcripts = [
+        {
+            "id": data["id"],
+            "filename": data["filename"],
+            "created_at": data["created_at"],
+            "duration_seconds": data.get("duration_seconds", 0),
+            "num_speakers": len(data.get("speakers", {})),
+            "summary": data.get("summary", ""),
+            "tags": data.get("tags", []),
+        }
+        for data in iter_transcripts()
+    ]
     transcripts.sort(key=lambda t: t["created_at"], reverse=True)
     return transcripts
 
@@ -350,27 +346,14 @@ async def delete_comment(transcript_id: str, request: Request):
 
 @app.post("/api/transcripts/{transcript_id}/summary")
 async def generate_transcript_summary(transcript_id: str):
-    from ai import generate_summary
     transcript = load_transcript(transcript_id)
     if not transcript.get("full_text"):
         raise HTTPException(status_code=400, detail="No text to summarize")
-    settings = load_settings()
-    user_name = settings.get("profile", {}).get("name") or None
-    summary_result = await asyncio.to_thread(generate_summary, transcript["full_text"], user_name)
-    if not summary_result:
+    await attach_summary(transcript)
+    if not transcript.get("summary"):
         raise HTTPException(status_code=500, detail="Summary generation failed — check your OPENAI_API_KEY")
-    transcript["summary"] = summary_result["text"]
-    transcript["summary_usage"] = {
-        "input_tokens": summary_result["input_tokens"],
-        "output_tokens": summary_result["output_tokens"],
-        "cost": summary_result["cost"],
-    }
-    transcript["action_items"] = [
-        {"text": item["text"], "status": "pending", "assigned_to": item.get("assigned_to")}
-        for item in summary_result.get("action_items", [])
-    ]
     save_transcript(transcript)
-    return {"summary": summary_result["text"], "action_items": transcript["action_items"]}
+    return {"summary": transcript["summary"], "action_items": transcript.get("action_items", [])}
 
 
 @app.patch("/api/transcripts/{transcript_id}/action-items")
@@ -529,15 +512,7 @@ async def get_copy_text(transcript_id: str):
 
 @app.get("/api/transcripts/copy-by-tag")
 async def copy_by_tag(tag: str = Query(..., min_length=1)):
-    matching = []
-    for f in sorted(TRANSCRIPTS_DIR.glob("*.json"), key=lambda p: p.stat().st_mtime):
-        try:
-            with open(f) as fh:
-                data = json.load(fh)
-            if tag in data.get("tags", []):
-                matching.append(data)
-        except (json.JSONDecodeError, KeyError):
-            continue
+    matching = [data for data in iter_transcripts() if tag in data.get("tags", [])]
 
     if not matching:
         return PlainTextResponse("No transcripts found with this tag.")
@@ -575,13 +550,7 @@ async def copy_by_tag(tag: str = Query(..., min_length=1)):
 async def search_transcripts(q: str = Query(..., min_length=1)):
     query = q.lower()
     results = []
-    for f in sorted(TRANSCRIPTS_DIR.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True):
-        try:
-            with open(f) as fh:
-                data = json.load(fh)
-        except (json.JSONDecodeError, KeyError):
-            continue
-
+    for data in iter_transcripts(sort_key="mtime", reverse=True):
         snippets = []
         filename = data.get("filename", "")
         summary = data.get("summary", "")
@@ -630,28 +599,23 @@ async def get_stats():
     total_gpt_tokens = 0
     month_gpt_tokens = 0
 
-    for f in TRANSCRIPTS_DIR.glob("*.json"):
-        try:
-            with open(f) as fh:
-                data = json.load(fh)
-            dur = data.get("duration_seconds", 0) / 60
-            total_minutes += dur
-            total_files += 1
+    for data in iter_transcripts():
+        dur = data.get("duration_seconds", 0) / 60
+        total_minutes += dur
+        total_files += 1
 
-            gpt_usage = data.get("summary_usage", {})
-            gpt_cost = gpt_usage.get("cost", 0)
-            gpt_tokens = gpt_usage.get("input_tokens", 0) + gpt_usage.get("output_tokens", 0)
-            total_gpt_cost += gpt_cost
-            total_gpt_tokens += gpt_tokens
+        gpt_usage = data.get("summary_usage", {})
+        gpt_cost = gpt_usage.get("cost", 0)
+        gpt_tokens = gpt_usage.get("input_tokens", 0) + gpt_usage.get("output_tokens", 0)
+        total_gpt_cost += gpt_cost
+        total_gpt_tokens += gpt_tokens
 
-            created = datetime.fromisoformat(data["created_at"])
-            if created.year == now.year and created.month == now.month:
-                month_minutes += dur
-                month_files += 1
-                month_gpt_cost += gpt_cost
-                month_gpt_tokens += gpt_tokens
-        except (json.JSONDecodeError, KeyError):
-            continue
+        created = datetime.fromisoformat(data["created_at"])
+        if created.year == now.year and created.month == now.month:
+            month_minutes += dur
+            month_files += 1
+            month_gpt_cost += gpt_cost
+            month_gpt_tokens += gpt_tokens
 
     deepgram_total = total_minutes * COST_PER_MINUTE
     deepgram_month = month_minutes * COST_PER_MINUTE
@@ -688,22 +652,17 @@ async def get_stats():
 @app.get("/api/stats/per-file")
 async def get_stats_per_file():
     files = []
-    for f in sorted(TRANSCRIPTS_DIR.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True):
-        try:
-            with open(f) as fh:
-                data = json.load(fh)
-            dur_min = data.get("duration_seconds", 0) / 60
-            gpt_cost = data.get("summary_usage", {}).get("cost", 0)
-            files.append({
-                "id": data["id"],
-                "filename": data["filename"],
-                "created_at": data["created_at"],
-                "duration_minutes": round(dur_min, 1),
-                "estimated_cost": round(dur_min * COST_PER_MINUTE, 4),
-                "gpt_cost": round(gpt_cost, 4),
-            })
-        except (json.JSONDecodeError, KeyError):
-            continue
+    for data in iter_transcripts(sort_key="mtime", reverse=True):
+        dur_min = data.get("duration_seconds", 0) / 60
+        gpt_cost = data.get("summary_usage", {}).get("cost", 0)
+        files.append({
+            "id": data["id"],
+            "filename": data["filename"],
+            "created_at": data["created_at"],
+            "duration_minutes": round(dur_min, 1),
+            "estimated_cost": round(dur_min * COST_PER_MINUTE, 4),
+            "gpt_cost": round(gpt_cost, 4),
+        })
     return files
 
 

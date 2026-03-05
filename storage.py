@@ -40,7 +40,7 @@ def load_voiceprints() -> dict:
 
 def save_voiceprints(vp: dict) -> None:
     with open(VOICEPRINTS_FILE, "w") as f:
-        json.dump(vp, f)
+        json.dump(vp, f, indent=2)
 
 
 def load_settings() -> dict:
@@ -53,3 +53,18 @@ def load_settings() -> dict:
 def save_settings(settings: dict) -> None:
     with open(SETTINGS_FILE, "w") as f:
         json.dump(settings, f, indent=2)
+
+
+def iter_transcripts(sort_key=None, reverse=False):
+    """Iterate over all saved transcripts, yielding parsed dicts. Skips corrupt files."""
+    files = TRANSCRIPTS_DIR.glob("*.json")
+    if sort_key == "mtime":
+        files = sorted(files, key=lambda p: p.stat().st_mtime, reverse=reverse)
+    else:
+        files = list(files)
+    for f in files:
+        try:
+            with open(f) as fh:
+                yield json.load(fh)
+        except (json.JSONDecodeError, KeyError):
+            continue
