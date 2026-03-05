@@ -26,6 +26,13 @@ let allTranscripts = [];
 // Staged files for multi-upload
 let stagedFiles = [];
 
+// Settings
+let userSettings = {};
+
+// Comments state
+let commentsSidebarOpen = false;
+let activeCommentPopover = null;
+
 const SPEAKER_COLORS = [
   '#58a6ff', '#f78166', '#7ee787', '#d2a8ff',
   '#ff7b72', '#79c0ff', '#ffa657', '#a5d6ff',
@@ -34,6 +41,7 @@ const SPEAKER_COLORS = [
 // === Init ===
 document.addEventListener('DOMContentLoaded', () => {
   checkHealth();
+  loadSettings();
   loadTags().then(() => loadTranscripts());
   setupDragDrop();
   setupFileInput();
@@ -240,7 +248,9 @@ async function uploadFile(file) {
     });
 
     progressText.textContent = 'Done!';
-    toast('Transcription complete!', 'success');
+    const durMin = (result.duration_seconds || 0) / 60;
+    const estCost = (durMin * 0.0092).toFixed(2);
+    toast(`Transcription complete! ${Math.round(durMin)} min · ~$${estCost}`, 'success');
 
     // Auto-download transcript text if this came from a recording
     if (pendingRecordingSessionId) {
@@ -341,7 +351,9 @@ async function uploadMultipleFiles(fileList) {
     });
 
     progressText.textContent = 'Done!';
-    toast('Combined transcription complete!', 'success');
+    const mDurMin = (result.duration_seconds || 0) / 60;
+    const mEstCost = (mDurMin * 0.0092).toFixed(2);
+    toast(`Combined transcription complete! ${Math.round(mDurMin)} min · ~$${mEstCost}`, 'success');
 
     await sleep(500);
 
@@ -748,6 +760,10 @@ function showTranscript(transcript) {
   renderTranscriptTags();
   renderUtterances();
   setupAudioPlayer(transcript);
+  updateCommentsBadge();
+  commentsSidebarOpen = false;
+  const cSidebar = document.getElementById('comments-sidebar');
+  if (cSidebar) cSidebar.classList.remove('open');
 
   switchView('view-transcript');
 }
@@ -792,14 +808,20 @@ function renderUtterances() {
     const ts = formatTimestamp(u.start);
     const isBookmarked = bookmarks.includes(i);
     const hidden = bookmarkFilterActive && !isBookmarked ? 'style="display:none"' : '';
+    const comments = currentTranscript.comments || {};
+    const hasComments = comments[String(i)] && comments[String(i)].length > 0;
+    const commentCount = hasComments ? comments[String(i)].length : 0;
 
     return `
-      <div class="utterance ${isBookmarked ? 'bookmarked' : ''}" data-index="${i}" data-start="${u.start}" data-end="${u.end}" onclick="seekToUtterance(${u.start})" ${hidden}>
+      <div class="utterance ${isBookmarked ? 'bookmarked' : ''} ${hasComments ? 'has-comments' : ''}" data-index="${i}" data-start="${u.start}" data-end="${u.end}" onclick="seekToUtterance(${u.start})" ${hidden}>
         <div class="u-timestamp">${ts}</div>
         <div class="u-content">
           <div class="u-speaker" style="color:${color}">${escapeHtml(displayName)}</div>
           <div class="u-text">${escapeHtml(u.text)}</div>
         </div>
+        <button class="u-comment ${hasComments ? 'has-comments' : ''}" onclick="event.stopPropagation(); openCommentInput(${i})" title="${hasComments ? commentCount + ' comment(s)' : 'Add comment'}">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="${hasComments ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        </button>
         <button class="u-bookmark ${isBookmarked ? 'active' : ''}" onclick="event.stopPropagation(); toggleBookmark(${i})" title="Bookmark">
           <svg viewBox="0 0 24 24" width="16" height="16" fill="${isBookmarked ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
         </button>
@@ -830,6 +852,169 @@ function toggleBookmarkFilter() {
   const btn = document.getElementById('btn-bookmark-filter');
   btn.classList.toggle('active', bookmarkFilterActive);
   renderUtterances();
+}
+
+// === Comments ===
+
+function openCommentInput(index) {
+  closeCommentPopover();
+  const utteranceEl = document.querySelector(`.utterance[data-index="${index}"]`);
+  if (!utteranceEl) return;
+  activeCommentPopover = index;
+  const popover = document.createElement('div');
+  popover.className = 'comment-input-popover';
+  popover.id = 'comment-popover';
+  popover.innerHTML = `
+    <input type="text" placeholder="Add a comment..." id="comment-input-field" onkeydown="if(event.key==='Enter') submitComment(${index})">
+    <button onclick="submitComment(${index})">Add</button>
+  `;
+  popover.addEventListener('click', (e) => e.stopPropagation());
+  utteranceEl.appendChild(popover);
+  setTimeout(() => {
+    const input = document.getElementById('comment-input-field');
+    if (input) input.focus();
+  }, 0);
+  document.addEventListener('click', handleCommentPopoverOutsideClick);
+}
+
+function handleCommentPopoverOutsideClick(e) {
+  const popover = document.getElementById('comment-popover');
+  if (popover && !popover.contains(e.target)) {
+    closeCommentPopover();
+  }
+}
+
+function closeCommentPopover() {
+  const popover = document.getElementById('comment-popover');
+  if (popover) popover.remove();
+  activeCommentPopover = null;
+  document.removeEventListener('click', handleCommentPopoverOutsideClick);
+}
+
+async function submitComment(index) {
+  const input = document.getElementById('comment-input-field');
+  if (!input || !input.value.trim()) return;
+  const text = input.value.trim();
+  try {
+    const res = await fetch(`/api/transcripts/${currentTranscript.id}/comments`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ index, text })
+    });
+    if (!res.ok) throw new Error('Failed to add comment');
+    const data = await res.json();
+    currentTranscript.comments = data.comments;
+    closeCommentPopover();
+    renderUtterances();
+    renderCommentsSidebar();
+    updateCommentsBadge();
+    toast('Comment added', 'success');
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+}
+
+async function deleteComment(index, commentId) {
+  try {
+    const res = await fetch(`/api/transcripts/${currentTranscript.id}/comments`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ index, comment_id: commentId })
+    });
+    if (!res.ok) throw new Error('Failed to delete comment');
+    const data = await res.json();
+    currentTranscript.comments = data.comments;
+    renderUtterances();
+    renderCommentsSidebar();
+    updateCommentsBadge();
+    toast('Comment deleted', 'success');
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+}
+
+function toggleCommentsSidebar() {
+  commentsSidebarOpen = !commentsSidebarOpen;
+  const sidebar = document.getElementById('comments-sidebar');
+  const btn = document.getElementById('btn-comments-toggle');
+  sidebar.classList.toggle('open', commentsSidebarOpen);
+  if (btn) btn.classList.toggle('active', commentsSidebarOpen);
+  if (commentsSidebarOpen) renderCommentsSidebar();
+}
+
+function renderCommentsSidebar() {
+  const list = document.getElementById('comments-sidebar-list');
+  if (!currentTranscript || !list) return;
+  const comments = currentTranscript.comments || {};
+  const entries = Object.entries(comments).sort((a, b) => Number(a[0]) - Number(b[0]));
+  if (entries.length === 0) {
+    list.innerHTML = '<p class="comments-empty">No comments yet. Click the comment icon on any utterance to add one.</p>';
+    return;
+  }
+  const speakers = currentTranscript.speakers || {};
+  const utterances = currentTranscript.utterances || [];
+  list.innerHTML = entries.map(([indexStr, commentArr]) => {
+    const idx = Number(indexStr);
+    const u = utterances[idx];
+    if (!u || u.type === 'file-boundary') return '';
+    const displayName = speakers[u.speaker] || u.speaker;
+    const ts = formatTimestamp(u.start);
+    const preview = u.text.length > 60 ? u.text.substring(0, 60) + '...' : u.text;
+    const commentItems = commentArr.map(c => {
+      const created = new Date(c.created_at);
+      const timeStr = created.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+      return `
+        <div class="comment-item">
+          <div class="comment-text">${escapeHtml(c.text)}</div>
+          <span class="comment-time">${timeStr}</span>
+          <button class="comment-delete" onclick="event.stopPropagation(); deleteComment(${idx}, '${escapeAttr(c.id)}')" title="Delete">
+            <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+          </button>
+        </div>
+      `;
+    }).join('');
+    return `
+      <div class="comment-group" onclick="jumpToComment(${idx})">
+        <div class="comment-group-header">
+          <span class="speaker-name">${escapeHtml(displayName)}</span>
+          <span>${ts}</span>
+        </div>
+        <div class="comment-group-preview">"${escapeHtml(preview)}"</div>
+        ${commentItems}
+      </div>
+    `;
+  }).join('');
+}
+
+function jumpToComment(index) {
+  const el = document.querySelector(`.utterance[data-index="${index}"]`);
+  if (!el) return;
+  if (el.style.display === 'none') {
+    bookmarkFilterActive = false;
+    const btn = document.getElementById('btn-bookmark-filter');
+    if (btn) btn.classList.remove('active');
+    renderUtterances();
+    const newEl = document.querySelector(`.utterance[data-index="${index}"]`);
+    if (newEl) highlightAndScrollComment(newEl);
+  } else {
+    highlightAndScrollComment(el);
+  }
+}
+
+function highlightAndScrollComment(el) {
+  document.querySelectorAll('.utterance.action-highlight').forEach(e => e.classList.remove('action-highlight'));
+  scrollToUtterance(el);
+  el.classList.add('action-highlight');
+  setTimeout(() => el.classList.remove('action-highlight'), 2000);
+}
+
+function updateCommentsBadge() {
+  const badge = document.getElementById('comments-badge');
+  if (!badge) return;
+  const comments = currentTranscript?.comments || {};
+  const total = Object.values(comments).reduce((sum, arr) => sum + arr.length, 0);
+  badge.textContent = total;
+  badge.style.display = total > 0 ? '' : 'none';
 }
 
 function renameTranscript() {
@@ -942,31 +1127,59 @@ async function generateSummary() {
 
 function renderActionItems() {
   const section = document.getElementById('action-items-section');
-  const list = document.getElementById('action-items-list');
   const items = currentTranscript.action_items || [];
   if (!items.length) {
     section.style.display = 'none';
     return;
   }
   section.style.display = '';
-  list.innerHTML = items.map((item, i) => {
-    const status = item.status || 'pending';
-    const checkSvg = status === 'accepted'
-      ? '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12l5 5L19 7"/></svg>'
-      : '';
-    return `
-      <div class="action-item ${status}" data-index="${i}">
-        <button class="action-item-check" onclick="toggleActionItem(${i})" title="${status === 'accepted' ? 'Mark pending' : 'Accept'}">${checkSvg}</button>
-        <span class="action-item-text" onclick="event.stopPropagation(); highlightActionSource(${i})" style="cursor:pointer">${escapeHtml(item.text)}</span>
-        <button class="action-item-dismiss" onclick="dismissActionItem(${i})" title="${status === 'dismissed' ? 'Restore' : 'Dismiss'}">
-          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
-        </button>
-        <button class="action-item-delete" onclick="deleteActionItem(${i})" title="Delete">
-          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4h8v2M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/></svg>
-        </button>
-      </div>
-    `;
-  }).join('');
+
+  const userName = (userSettings.profile && userSettings.profile.name) || '';
+  const hasUserItems = userName && items.some(item => item.assigned_to === 'user');
+
+  const userGroup = document.getElementById('user-action-items-group');
+  const userList = document.getElementById('user-action-items-list');
+  const allGroup = document.getElementById('all-action-items-group');
+  const allList = document.getElementById('all-action-items-list');
+  const allHeader = document.getElementById('all-action-items-header');
+
+  if (hasUserItems) {
+    userGroup.style.display = '';
+    allHeader.textContent = 'Other Action Items';
+    const userItems = items.map((item, i) => ({ item, i })).filter(({ item }) => item.assigned_to === 'user');
+    const otherItems = items.map((item, i) => ({ item, i })).filter(({ item }) => item.assigned_to !== 'user');
+    userList.innerHTML = userItems.map(({ item, i }) => renderSingleActionItem(item, i)).join('');
+    if (otherItems.length) {
+      allGroup.style.display = '';
+      allList.innerHTML = otherItems.map(({ item, i }) => renderSingleActionItem(item, i)).join('');
+    } else {
+      allGroup.style.display = 'none';
+    }
+  } else {
+    userGroup.style.display = 'none';
+    allGroup.style.display = '';
+    allHeader.textContent = 'Action Items';
+    allList.innerHTML = items.map((item, i) => renderSingleActionItem(item, i)).join('');
+  }
+}
+
+function renderSingleActionItem(item, i) {
+  const status = item.status || 'pending';
+  const checkSvg = status === 'accepted'
+    ? '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12l5 5L19 7"/></svg>'
+    : '';
+  return `
+    <div class="action-item ${status}" data-index="${i}">
+      <button class="action-item-check" onclick="toggleActionItem(${i})" title="${status === 'accepted' ? 'Mark pending' : 'Accept'}">${checkSvg}</button>
+      <span class="action-item-text" onclick="event.stopPropagation(); highlightActionSource(${i})" style="cursor:pointer">${escapeHtml(item.text)}</span>
+      <button class="action-item-dismiss" onclick="dismissActionItem(${i})" title="${status === 'dismissed' ? 'Restore' : 'Dismiss'}">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+      </button>
+      <button class="action-item-delete" onclick="deleteActionItem(${i})" title="Delete">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4h8v2M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/></svg>
+      </button>
+    </div>
+  `;
 }
 
 async function updateActionItemStatus(index, status) {
@@ -1119,9 +1332,65 @@ function downloadFile(content, filename, type) {
   URL.revokeObjectURL(url);
 }
 
+// === Settings ===
+async function loadSettings() {
+  try {
+    const res = await fetch('/api/settings');
+    userSettings = await res.json();
+  } catch (e) {
+    userSettings = {};
+  }
+}
+
+async function showSettings() {
+  await loadSettings();
+  const profile = userSettings.profile || {};
+  document.getElementById('settings-name').value = profile.name || '';
+  document.getElementById('settings-role').value = profile.role || '';
+  document.getElementById('settings-saved-indicator').style.display = 'none';
+  switchView('view-settings');
+}
+
+async function saveSettings() {
+  const name = document.getElementById('settings-name').value.trim();
+  const role = document.getElementById('settings-role').value.trim();
+  const btn = document.getElementById('btn-save-settings');
+  btn.disabled = true;
+  btn.textContent = 'Saving...';
+  try {
+    const res = await fetch('/api/settings', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ profile: { name, role } }),
+    });
+    if (!res.ok) throw new Error('Failed to save');
+    userSettings = await res.json();
+    document.getElementById('settings-saved-indicator').style.display = '';
+    toast('Settings saved', 'success');
+  } catch (e) {
+    toast('Failed to save settings', 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Save Profile';
+  }
+}
+
 // === Cost Tracker ===
 async function showCosts() {
-  switchView('view-costs');
+  await toggleCostsSection(true);
+}
+
+async function toggleCostsSection(forceOpen) {
+  const section = document.getElementById('costs-collapsible');
+  const chevron = document.getElementById('costs-chevron');
+  const isOpen = section.style.display !== 'none';
+  if (isOpen && !forceOpen) {
+    section.style.display = 'none';
+    chevron.style.transform = '';
+    return;
+  }
+  section.style.display = '';
+  chevron.style.transform = 'rotate(180deg)';
 
   try {
     const [statsRes, perFileRes] = await Promise.all([
@@ -1196,6 +1465,10 @@ function showHome() {
   cleanupRecording();
   stopAudioPlayer();
   clearTranscriptSearch();
+  closeCommentPopover();
+  commentsSidebarOpen = false;
+  const cSidebar = document.getElementById('comments-sidebar');
+  if (cSidebar) cSidebar.classList.remove('open');
   currentTranscript = null;
   switchView('view-home');
   loadTranscripts();

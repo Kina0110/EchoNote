@@ -1,5 +1,31 @@
 # Changelog
 
+## 2026-03-05
+
+### Comments
+- Add comments on any utterance — click the speech bubble icon to leave a note
+- Collapsible comments sidebar lists all comments, click to jump to that utterance
+- Comment count badge on the toggle button
+- Commented utterances highlighted with blue right border
+
+### Smarter action items
+- GPT only generates action items when genuinely warranted (no more filler tasks for casual meetings)
+- Personal action items: set your name in Settings, GPT tags items assigned to you
+- "Your Action Items" section shown separately above other items
+
+### Settings page
+- New settings view (gear icon on home screen)
+- Profile configuration: name + role used for personalized action items
+- Usage & Costs moved into settings as a collapsible section
+
+### Cost alert on upload
+- Toast notification after transcription shows duration and estimated cost
+
+### Utterance merging on load
+- Existing transcripts now get same-speaker merging applied when opened (not just new ones)
+
+---
+
 ## 2026-03-04
 
 - Fix clipboard copy on iPhone Safari (fallback for HTTP/non-secure contexts)

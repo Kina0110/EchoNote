@@ -123,7 +123,10 @@ def extract_utterances(result: dict) -> tuple[list, dict]:
 async def attach_summary(transcript: dict) -> None:
     """Generate and attach AI summary + action items to a transcript dict (in-place)."""
     from ai import generate_summary
-    summary_result = await asyncio.to_thread(generate_summary, transcript["full_text"])
+    from storage import load_settings
+    settings = load_settings()
+    user_name = settings.get("profile", {}).get("name") or None
+    summary_result = await asyncio.to_thread(generate_summary, transcript["full_text"], user_name)
     if summary_result:
         transcript["summary"] = summary_result["text"]
         transcript["summary_usage"] = {
@@ -132,7 +135,7 @@ async def attach_summary(transcript: dict) -> None:
             "cost": summary_result["cost"],
         }
         transcript["action_items"] = [
-            {"text": item, "status": "pending"}
+            {"text": item["text"], "status": "pending", "assigned_to": item.get("assigned_to")}
             for item in summary_result.get("action_items", [])
         ]
 

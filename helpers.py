@@ -17,7 +17,13 @@ def merge_short_utterances(utterances: list, max_gap: float = 15.0) -> list:
         return utterances
     merged = [dict(utterances[0])]
     for u in utterances[1:]:
+        if u.get("type") == "file-boundary":
+            merged.append(dict(u))
+            continue
         prev = merged[-1]
+        if prev.get("type") == "file-boundary":
+            merged.append(dict(u))
+            continue
         same_speaker = u["speaker"] == prev["speaker"]
         gap = u["start"] - prev["end"]
         if same_speaker and gap <= max_gap:

@@ -2,7 +2,7 @@ import json
 
 from fastapi import HTTPException
 
-from config import TRANSCRIPTS_DIR, TAGS_FILE, VOICEPRINTS_FILE
+from config import TRANSCRIPTS_DIR, TAGS_FILE, VOICEPRINTS_FILE, SETTINGS_FILE
 
 
 def load_transcript(transcript_id: str) -> dict:
@@ -41,3 +41,15 @@ def load_voiceprints() -> dict:
 def save_voiceprints(vp: dict) -> None:
     with open(VOICEPRINTS_FILE, "w") as f:
         json.dump(vp, f)
+
+
+def load_settings() -> dict:
+    if SETTINGS_FILE.exists():
+        with open(SETTINGS_FILE) as f:
+            return json.load(f)
+    return {}
+
+
+def save_settings(settings: dict) -> None:
+    with open(SETTINGS_FILE, "w") as f:
+        json.dump(settings, f, indent=2)

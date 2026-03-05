@@ -21,10 +21,10 @@ from config import (
     VIDEO_EXTENSIONS, VIDEO_MEDIA_TYPES, VIDEOS_DIR,
     api_key_configured, ffmpeg_available,
 )
-from helpers import generate_copy_text, generate_full_text
+from helpers import generate_copy_text, generate_full_text, merge_short_utterances
 from storage import (
-    load_tags, load_transcript, load_voiceprints,
-    save_tags, save_transcript, save_voiceprints,
+    load_settings, load_tags, load_transcript, load_voiceprints,
+    save_settings, save_tags, save_transcript, save_voiceprints,
 )
 from transcription import (
     attach_summary, cleanup_files, extract_duration, extract_utterances,
@@ -236,7 +236,9 @@ async def list_transcripts():
 
 @app.get("/api/transcripts/{transcript_id}")
 async def get_transcript(transcript_id: str):
-    return load_transcript(transcript_id)
+    transcript = load_transcript(transcript_id)
+    transcript["utterances"] = merge_short_utterances(transcript.get("utterances", []))
+    return transcript
 
 
 @app.patch("/api/transcripts/{transcript_id}/rename")
@@ -293,6 +295,57 @@ async def toggle_bookmark(transcript_id: str, request: Request):
     return {"bookmarks": bookmarks}
 
 
+# --- Comments ---
+
+@app.post("/api/transcripts/{transcript_id}/comments")
+async def add_comment(transcript_id: str, request: Request):
+    body = await request.json()
+    index = body.get("index")
+    text = body.get("text", "").strip()
+    if index is None or not isinstance(index, int):
+        raise HTTPException(status_code=400, detail="Missing or invalid 'index'")
+    if not text:
+        raise HTTPException(status_code=400, detail="Comment text cannot be empty")
+    transcript = load_transcript(transcript_id)
+    if index < 0 or index >= len(transcript.get("utterances", [])):
+        raise HTTPException(status_code=400, detail="Index out of range")
+    comments = transcript.get("comments", {})
+    key = str(index)
+    if key not in comments:
+        comments[key] = []
+    comments[key].append({
+        "id": str(uuid.uuid4())[:8],
+        "text": text,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+    transcript["comments"] = comments
+    save_transcript(transcript)
+    return {"comments": comments}
+
+
+@app.delete("/api/transcripts/{transcript_id}/comments")
+async def delete_comment(transcript_id: str, request: Request):
+    body = await request.json()
+    index = body.get("index")
+    comment_id = body.get("comment_id")
+    if index is None or not isinstance(index, int) or not comment_id:
+        raise HTTPException(status_code=400, detail="Provide 'index' and 'comment_id'")
+    transcript = load_transcript(transcript_id)
+    comments = transcript.get("comments", {})
+    key = str(index)
+    if key not in comments:
+        raise HTTPException(status_code=404, detail="No comments at this index")
+    original_len = len(comments[key])
+    comments[key] = [c for c in comments[key] if c["id"] != comment_id]
+    if len(comments[key]) == original_len:
+        raise HTTPException(status_code=404, detail="Comment not found")
+    if not comments[key]:
+        del comments[key]
+    transcript["comments"] = comments
+    save_transcript(transcript)
+    return {"comments": comments}
+
+
 # --- Summary & Action Items ---
 
 @app.post("/api/transcripts/{transcript_id}/summary")
@@ -301,7 +354,9 @@ async def generate_transcript_summary(transcript_id: str):
     transcript = load_transcript(transcript_id)
     if not transcript.get("full_text"):
         raise HTTPException(status_code=400, detail="No text to summarize")
-    summary_result = await asyncio.to_thread(generate_summary, transcript["full_text"])
+    settings = load_settings()
+    user_name = settings.get("profile", {}).get("name") or None
+    summary_result = await asyncio.to_thread(generate_summary, transcript["full_text"], user_name)
     if not summary_result:
         raise HTTPException(status_code=500, detail="Summary generation failed — check your OPENAI_API_KEY")
     transcript["summary"] = summary_result["text"]
@@ -311,7 +366,7 @@ async def generate_transcript_summary(transcript_id: str):
         "cost": summary_result["cost"],
     }
     transcript["action_items"] = [
-        {"text": item, "status": "pending"}
+        {"text": item["text"], "status": "pending", "assigned_to": item.get("assigned_to")}
         for item in summary_result.get("action_items", [])
     ]
     save_transcript(transcript)
@@ -412,6 +467,27 @@ async def update_tags(transcript_id: str, request: Request):
     save_transcript(transcript)
     save_tags(tags_map)
     return {"tags": current_tags, "tags_map": tags_map}
+
+
+# --- Settings ---
+
+@app.get("/api/settings")
+async def get_settings():
+    return load_settings()
+
+
+@app.patch("/api/settings")
+async def update_settings(request: Request):
+    body = await request.json()
+    settings = load_settings()
+    if "profile" in body:
+        profile = body["profile"]
+        settings["profile"] = {
+            "name": str(profile.get("name", "")).strip(),
+            "role": str(profile.get("role", "")).strip(),
+        }
+    save_settings(settings)
+    return settings
 
 
 # --- Media ---

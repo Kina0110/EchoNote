@@ -14,6 +14,7 @@ VIDEOS_DIR = BASE_DIR / "videos"
 STATIC_DIR = BASE_DIR / "static"
 TAGS_FILE = BASE_DIR / "tags.json"
 VOICEPRINTS_FILE = BASE_DIR / "voiceprints.json"
+SETTINGS_FILE = BASE_DIR / "settings.json"
 
 UPLOADS_DIR.mkdir(exist_ok=True)
 TRANSCRIPTS_DIR.mkdir(exist_ok=True)

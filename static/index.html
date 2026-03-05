@@ -6,7 +6,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>Transcriber</title>
-  <link rel="stylesheet" href="/static/style.css?v=18">
+  <link rel="stylesheet" href="/static/style.css?v=23">
 </head>
 <body>
   <!-- Toast container -->
@@ -27,10 +27,10 @@
         </h1>
       </div>
       <div class="header-right">
-        <button class="btn-icon" onclick="showCosts()" title="Usage & Costs">
+        <button class="btn-icon" onclick="showSettings()" title="Settings">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <line x1="12" y1="1" x2="12" y2="23"/>
-            <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
           </svg>
         </button>
       </div>
@@ -159,6 +159,12 @@
         </button>
         <button class="btn-secondary" onclick="exportTxt()">Export .txt</button>
         <button class="btn-secondary" onclick="exportSrt()">Export .srt</button>
+        <button class="btn-icon btn-comments-toggle" id="btn-comments-toggle" onclick="toggleCommentsSidebar()" title="Comments">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+          </svg>
+          <span class="comments-badge" id="comments-badge" style="display:none">0</span>
+        </button>
       </div>
     </div>
 
@@ -199,8 +205,14 @@
       <div id="t-summary" class="t-summary"></div>
       <button id="btn-generate-summary" class="btn-generate-summary" onclick="generateSummary()" style="display:none">Generate Summary</button>
       <div id="action-items-section" class="action-items-section" style="display:none">
-        <div class="action-items-header">Action Items</div>
-        <div id="action-items-list" class="action-items-list"></div>
+        <div id="user-action-items-group" class="action-items-group" style="display:none">
+          <div class="action-items-header action-items-header-user">Your Action Items</div>
+          <div id="user-action-items-list" class="action-items-list"></div>
+        </div>
+        <div id="all-action-items-group" class="action-items-group">
+          <div class="action-items-header" id="all-action-items-header">Action Items</div>
+          <div id="all-action-items-list" class="action-items-list"></div>
+        </div>
       </div>
     </div>
 
@@ -243,10 +255,25 @@
 
     <!-- Utterances -->
     <div id="utterances" class="utterances"></div>
+
+    <!-- Comments Sidebar -->
+    <div id="comments-sidebar" class="comments-sidebar">
+      <div class="comments-sidebar-header">
+        <h3>Comments</h3>
+        <button class="btn-icon" onclick="toggleCommentsSidebar()" title="Close">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M18 6L6 18M6 6l12 12"/>
+          </svg>
+        </button>
+      </div>
+      <div id="comments-sidebar-list" class="comments-sidebar-list">
+        <p class="comments-empty">No comments yet. Click the comment icon on any utterance to add one.</p>
+      </div>
+    </div>
   </div>
 
-  <!-- Cost Tracker View -->
-  <div id="view-costs" class="view">
+  <!-- Settings View -->
+  <div id="view-settings" class="view">
     <header class="app-header">
       <div class="header-left">
         <button class="btn-back" onclick="showHome()">
@@ -256,64 +283,87 @@
           Back
         </button>
       </div>
-      <h1 class="page-title">Usage & Costs</h1>
+      <h1 class="page-title">Settings</h1>
     </header>
 
-    <div class="costs-dashboard">
-      <div class="stats-cards">
-        <div class="stat-card">
-          <div class="stat-label">This Month</div>
-          <div class="stat-row">
-            <span id="stat-month-files">0</span> files
-            <span class="meta-sep">&middot;</span>
-            <span id="stat-month-min">0</span> min
-          </div>
-          <div class="stat-cost">~$<span id="stat-month-cost">0.00</span></div>
-          <div class="stat-breakdown">
-            <span>Deepgram: $<span id="stat-month-deepgram">0.00</span></span>
-            <span>GPT AI: $<span id="stat-month-gpt">0.00</span></span>
-          </div>
+    <div class="settings-dashboard">
+      <div class="settings-section">
+        <h3 class="settings-section-title">Profile</h3>
+        <p class="settings-section-desc">Your name is used to identify action items assigned to you in meeting summaries.</p>
+        <div class="settings-field">
+          <label for="settings-name">Name</label>
+          <input type="text" id="settings-name" placeholder="e.g. Abdull" autocomplete="off">
         </div>
-        <div class="stat-card">
-          <div class="stat-label">All Time</div>
-          <div class="stat-row">
-            <span id="stat-total-files">0</span> files
-            <span class="meta-sep">&middot;</span>
-            <span id="stat-total-min">0</span> min
-          </div>
-          <div class="stat-cost">~$<span id="stat-total-cost">0.00</span></div>
-          <div class="stat-breakdown">
-            <span>Deepgram: $<span id="stat-total-deepgram">0.00</span></span>
-            <span>GPT AI: $<span id="stat-total-gpt">0.00</span></span>
-          </div>
+        <div class="settings-field">
+          <label for="settings-role">Role</label>
+          <input type="text" id="settings-role" placeholder="e.g. Engineering Manager" autocomplete="off">
         </div>
+        <button class="btn-save-settings" id="btn-save-settings" onclick="saveSettings()">Save Profile</button>
+        <span class="settings-saved-indicator" id="settings-saved-indicator" style="display:none">Saved!</span>
       </div>
 
-      <div class="credit-section">
-        <div class="credit-header">
-          <span>Deepgram Credit Remaining</span>
-          <span class="credit-amount">~$<span id="stat-credit">200.00</span></span>
+      <div class="settings-section">
+        <div class="settings-link" onclick="toggleCostsSection()">
+          <div>
+            <h3 class="settings-section-title">Usage & Costs</h3>
+            <p class="settings-section-desc" style="margin-bottom:0">Transcription minutes, API costs, and credit remaining.</p>
+          </div>
+          <svg id="costs-chevron" class="costs-chevron" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
         </div>
-        <div class="credit-bar-container">
-          <div id="credit-bar" class="credit-bar" style="width:100%"></div>
+        <div id="costs-collapsible" class="costs-collapsible" style="display:none">
+          <div class="stats-cards">
+            <div class="stat-card">
+              <div class="stat-label">This Month</div>
+              <div class="stat-row">
+                <span id="stat-month-files">0</span> files
+                <span class="meta-sep">&middot;</span>
+                <span id="stat-month-min">0</span> min
+              </div>
+              <div class="stat-cost">~$<span id="stat-month-cost">0.00</span></div>
+              <div class="stat-breakdown">
+                <span>Deepgram: $<span id="stat-month-deepgram">0.00</span></span>
+                <span>GPT AI: $<span id="stat-month-gpt">0.00</span></span>
+              </div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">All Time</div>
+              <div class="stat-row">
+                <span id="stat-total-files">0</span> files
+                <span class="meta-sep">&middot;</span>
+                <span id="stat-total-min">0</span> min
+              </div>
+              <div class="stat-cost">~$<span id="stat-total-cost">0.00</span></div>
+              <div class="stat-breakdown">
+                <span>Deepgram: $<span id="stat-total-deepgram">0.00</span></span>
+                <span>GPT AI: $<span id="stat-total-gpt">0.00</span></span>
+              </div>
+            </div>
+          </div>
+          <div class="credit-section">
+            <div class="credit-header">
+              <span>Deepgram Credit Remaining</span>
+              <span class="credit-amount">~$<span id="stat-credit">200.00</span></span>
+            </div>
+            <div class="credit-bar-container">
+              <div id="credit-bar" class="credit-bar" style="width:100%"></div>
+            </div>
+            <div id="credit-estimate" class="credit-estimate"></div>
+          </div>
+          <div class="storage-section">
+            <div class="storage-header">
+              <span>Video Storage</span>
+              <span class="storage-amount" id="stat-video-storage">0 MB</span>
+            </div>
+          </div>
+          <div class="per-file-section">
+            <h3>Per-File Breakdown</h3>
+            <div id="per-file-table" class="per-file-table"></div>
+          </div>
         </div>
-        <div id="credit-estimate" class="credit-estimate"></div>
-      </div>
-
-      <div class="storage-section">
-        <div class="storage-header">
-          <span>Video Storage</span>
-          <span class="storage-amount" id="stat-video-storage">0 MB</span>
-        </div>
-      </div>
-
-      <div class="per-file-section">
-        <h3>Per-File Breakdown</h3>
-        <div id="per-file-table" class="per-file-table"></div>
       </div>
     </div>
   </div>
 
-  <script src="/static/app.js?v=18"></script>
+  <script src="/static/app.js?v=23"></script>
 </body>
 </html>
