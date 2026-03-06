@@ -46,6 +46,12 @@ document.addEventListener('DOMContentLoaded', () => {
   setupDragDrop();
   setupFileInput();
   setupKeyboardShortcut();
+  
+  // Restore last viewed transcript on page refresh
+  const lastTranscriptId = localStorage.getItem('lastTranscriptId');
+  if (lastTranscriptId) {
+    openTranscript(lastTranscriptId);
+  }
 });
 
 // === Health Check ===
@@ -612,6 +618,8 @@ async function openTranscript(id) {
     if (!res.ok) throw new Error('Failed to load transcript');
     const transcript = await res.json();
     showTranscript(transcript);
+    // Save to localStorage to restore on page refresh
+    localStorage.setItem('lastTranscriptId', id);
   } catch (e) {
     toast(e.message, 'error');
   }
@@ -1195,17 +1203,28 @@ function copyToClipboard(text) {
     return navigator.clipboard.writeText(text);
   }
   // Fallback for iOS Safari over HTTP
-  const ta = document.createElement('textarea');
-  ta.value = text;
-  ta.style.position = 'fixed';
-  ta.style.left = '-9999px';
-  ta.style.opacity = '0';
-  document.body.appendChild(ta);
-  ta.focus();
-  ta.select();
-  ta.setSelectionRange(0, text.length);
+  // Use contentEditable div - more reliable on iOS than textarea
+  const el = document.createElement('div');
+  el.contentEditable = true;
+  el.textContent = text;
+  el.style.position = 'fixed';
+  el.style.top = '0';
+  el.style.left = '0';
+  el.style.width = '1px';
+  el.style.height = '1px';
+  el.style.overflow = 'hidden';
+  el.style.opacity = '0.01';
+  document.body.appendChild(el);
+  
+  const range = document.createRange();
+  range.selectNodeContents(el);
+  const selection = window.getSelection();
+  selection.removeAllRanges();
+  selection.addRange(range);
+  
   document.execCommand('copy');
-  document.body.removeChild(ta);
+  selection.removeAllRanges();
+  document.body.removeChild(el);
   return Promise.resolve();
 }
 
@@ -1393,6 +1412,7 @@ function showHome() {
   const cSidebar = document.getElementById('comments-sidebar');
   if (cSidebar) cSidebar.classList.remove('open');
   currentTranscript = null;
+  localStorage.removeItem('lastTranscriptId');
   switchView('view-home');
   loadTranscripts();
 }

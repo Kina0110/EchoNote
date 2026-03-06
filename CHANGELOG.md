@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026-03-06
+
+### iOS clipboard & mobile UI fixes
+- **Fixed clipboard copy on iPhone**: Replaced textarea fallback with contentEditable div positioned at `top: 0, left: 0` for iOS Safari compatibility
+- **Mobile button layout**: Reduced "Copy for ChatGPT" button width on mobile, kept all action buttons on one line
+- **Improved button spacing**: Reduced padding on mobile (20px → 12px for copy, 14px → 10px for export buttons)
+- **Fixed comment badge cutoff**: Added top padding to action bar so notification badge displays fully visible
+- **Page refresh persistence**: Transcript view now persists across page reloads using localStorage
+
+---
+
 ## 2026-03-05
 
 ### Comments
