@@ -136,6 +136,16 @@ def extract_utterances(result: dict) -> tuple[list, dict]:
     return utterances, speakers
 
 
+async def attach_chapters(transcript: dict) -> None:
+    """Generate and attach chapters to a transcript dict (in-place)."""
+    from ai import generate_chapters
+    chapters = await asyncio.to_thread(
+        generate_chapters, transcript["utterances"], transcript["speakers"]
+    )
+    if chapters:
+        transcript["chapters"] = chapters
+
+
 async def attach_summary(transcript: dict) -> None:
     """Generate and attach AI summary + action items to a transcript dict (in-place)."""
     from ai import generate_summary

@@ -1,5 +1,24 @@
 # Changelog
 
+## 2026-03-06 (latest)
+
+### Chapters
+- Auto-generate topic chapters for any transcript using GPT-5
+- Chapters generated automatically on new transcriptions alongside summary
+- "Generate Chapters" button for existing transcripts
+- Clickable chapter nav (table of contents) with timestamps, shown below the summary
+- Chapter headers rendered inline in the utterance list as dividers
+- Clicking a chapter nav item seeks the audio player and scrolls to that section
+
+### Collapsible action items
+- Action items section now has a toggle header showing count (e.g. "Action Items (4)")
+- Click to collapse/expand — resets to open when switching transcripts
+
+### Playback speed
+- Added 1.75x speed option between 1.5x and 2x
+
+---
+
 ## 2026-03-06
 
 ### iOS clipboard & mobile UI fixes

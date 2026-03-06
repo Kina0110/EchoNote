@@ -687,7 +687,9 @@ function showTranscript(transcript) {
   const hasAudio = !!transcript.audio_file;
   retranscribeBtn.style.display = (!hasWords && hasAudio) ? '' : 'none';
 
+  actionItemsCollapsed = false;
   renderActionItems();
+  renderChaptersNav();
 
   bookmarkFilterActive = false;
   const bmBtn = document.getElementById('btn-bookmark-filter');
@@ -726,11 +728,16 @@ function renderUtterances() {
   const container = document.getElementById('utterances');
   const speakers = Object.keys(currentTranscript.speakers);
   const bookmarks = currentTranscript.bookmarks || [];
+  const chapterMap = buildChapterMap(currentTranscript.utterances, currentTranscript.chapters);
 
   container.innerHTML = currentTranscript.utterances.map((u, i) => {
+    const chapterHeader = chapterMap[i]
+      ? `<div class="chapter-header" id="chapter-${i}"><span class="chapter-header-title">${escapeHtml(chapterMap[i])}</span></div>`
+      : '';
+
     // Render file-boundary dividers for combined transcripts
     if (u.type === 'file-boundary') {
-      return `
+      return chapterHeader + `
         <div class="file-boundary" data-index="${i}">
           <div class="file-boundary-line"></div>
           <span class="file-boundary-label">${escapeHtml(u.filename)}</span>
@@ -754,7 +761,7 @@ function renderUtterances() {
       ? u.words.map(w => `<span class="word" data-start="${w.start}" data-end="${w.end}">${escapeHtml(w.word)}</span>`).join(' ')
       : escapeHtml(u.text);
 
-    return `
+    return chapterHeader + `
       <div class="utterance ${isBookmarked ? 'bookmarked' : ''} ${hasComments ? 'has-comments' : ''}" data-index="${i}" data-start="${u.start}" data-end="${u.end}" onclick="onUtteranceClick(event, ${i}, ${u.start})" ${hidden}>
         <div class="u-timestamp">${ts}</div>
         <div class="u-content">
@@ -1064,6 +1071,87 @@ function renameSpeaker(speakerKey, chipEl) {
   });
 }
 
+// === Chapters ===
+
+function buildChapterMap(utterances, chapters) {
+  if (!chapters || !chapters.length) return {};
+  const map = {};
+  const sorted = [...chapters].sort((a, b) => a.start - b.start);
+  for (const ch of sorted) {
+    for (let i = 0; i < utterances.length; i++) {
+      const u = utterances[i];
+      if (u.type === 'file-boundary') continue;
+      if (u.start >= ch.start) {
+        if (!(i in map)) map[i] = ch.title;
+        break;
+      }
+    }
+  }
+  return map;
+}
+
+function renderChaptersNav() {
+  const nav = document.getElementById('chapters-nav');
+  const btn = document.getElementById('btn-generate-chapters');
+  const chapters = currentTranscript.chapters || [];
+  const utterances = currentTranscript.utterances || [];
+
+  if (!chapters.length) {
+    nav.style.display = 'none';
+    btn.style.display = '';
+    return;
+  }
+
+  const chapterMap = buildChapterMap(utterances, chapters);
+  const entries = Object.entries(chapterMap).sort((a, b) => Number(a[0]) - Number(b[0]));
+
+  nav.style.display = '';
+  nav.innerHTML = `
+    <div class="chapters-nav-title">Chapters</div>
+    <div class="chapters-nav-list">
+      ${entries.map(([idx, title]) => {
+        const u = utterances[Number(idx)];
+        const ts = u ? formatTimestamp(u.start) : '';
+        return `<button class="chapter-nav-item" onclick="jumpToChapter(${idx})">
+          <span class="chapter-nav-time">${ts}</span>
+          <span class="chapter-nav-label">${escapeHtml(title)}</span>
+        </button>`;
+      }).join('')}
+    </div>
+  `;
+  btn.style.display = 'none';
+}
+
+function jumpToChapter(utteranceIndex) {
+  const headerEl = document.getElementById(`chapter-${utteranceIndex}`);
+  if (headerEl) headerEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  const u = currentTranscript.utterances[utteranceIndex];
+  if (u) seekToUtterance(u.start);
+}
+
+async function generateChapters() {
+  if (!currentTranscript) return;
+  const btn = document.getElementById('btn-generate-chapters');
+  btn.textContent = 'Generating...';
+  btn.disabled = true;
+  try {
+    const res = await fetch(`/api/transcripts/${currentTranscript.id}/chapters`, { method: 'POST' });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.detail || 'Failed to generate chapters');
+    }
+    const data = await res.json();
+    currentTranscript.chapters = data.chapters;
+    renderChaptersNav();
+    renderUtterances();
+    toast('Chapters generated!', 'success');
+  } catch (e) {
+    toast(e.message, 'error');
+    btn.textContent = 'Generate Chapters';
+    btn.disabled = false;
+  }
+}
+
 // === Copy & Export ===
 async function generateSummary() {
   if (!currentTranscript) return;
@@ -1116,6 +1204,14 @@ async function retranscribe() {
   }
 }
 
+let actionItemsCollapsed = false;
+
+function toggleActionItems() {
+  actionItemsCollapsed = !actionItemsCollapsed;
+  document.getElementById('action-items-body').style.display = actionItemsCollapsed ? 'none' : '';
+  document.getElementById('action-items-chevron').style.transform = actionItemsCollapsed ? 'rotate(-90deg)' : '';
+}
+
 function renderActionItems() {
   const section = document.getElementById('action-items-section');
   const items = currentTranscript.action_items || [];
@@ -1124,6 +1220,10 @@ function renderActionItems() {
     return;
   }
   section.style.display = '';
+  const visibleCount = items.filter(i => i.status !== 'deleted').length;
+  document.getElementById('action-items-toggle-label').textContent = `Action Items (${visibleCount})`;
+  document.getElementById('action-items-body').style.display = actionItemsCollapsed ? 'none' : '';
+  document.getElementById('action-items-chevron').style.transform = actionItemsCollapsed ? 'rotate(-90deg)' : '';
 
   const userName = (userSettings.profile && userSettings.profile.name) || '';
   const hasUserItems = userName && items.some(item => item.assigned_to === 'user');
@@ -1783,7 +1883,7 @@ function stopAudioPlayer() {
   document.getElementById('player-total').textContent = '0:00';
 }
 
-const SPEED_OPTIONS = [1, 1.25, 1.5, 2, 3];
+const SPEED_OPTIONS = [1, 1.25, 1.5, 1.75, 2, 3];
 let currentSpeedIndex = 0;
 
 function cycleSpeed() {

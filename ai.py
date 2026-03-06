@@ -55,7 +55,7 @@ def generate_summary(full_text: str, user_name: str | None = None) -> dict | Non
         output_tokens = usage.completion_tokens if usage else 0
         cost = (input_tokens * AI_INPUT_COST_PER_TOKEN) + (output_tokens * AI_OUTPUT_COST_PER_TOKEN)
 
-        raw = resp.choices[0].message.content.strip()
+        raw = (resp.choices[0].message.content or "").strip()
         # Strip markdown fences if present
         if raw.startswith("```"):
             raw = re.sub(r"^```(?:json)?\s*", "", raw)
@@ -94,3 +94,62 @@ def generate_summary(full_text: str, user_name: str | None = None) -> dict | Non
         }
     except Exception:
         return None
+
+
+def generate_chapters(utterances: list, speakers: dict) -> list | None:
+    """Generate chapter titles with timestamps using GPT-5. Returns list of {title, start} or None."""
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        return None
+    try:
+        client = OpenAI(api_key=api_key)
+
+        lines = []
+        for u in utterances:
+            if u.get("type") == "file-boundary":
+                continue
+            speaker = speakers.get(u.get("speaker", ""), u.get("speaker", ""))
+            lines.append(f"[{u.get('start', 0):.1f}s] {speaker}: {u.get('text', '')}")
+
+        if len(lines) < 5:
+            return None
+
+        text = "\n".join(lines)[:40000]
+
+        system_prompt = (
+            "You are analyzing a meeting transcript with timestamps. Identify 2-6 distinct topic sections. "
+            "For each section provide a concise title (3-6 words) and the exact timestamp in seconds "
+            "from the transcript where that topic begins. The first chapter must start at 0. "
+            "Only create chapters for genuine topic shifts, not every speaker change. "
+            'Return ONLY a JSON array, no other text: [{"title": "Project Kickoff", "start": 0}, {"title": "Budget Review", "start": 245.3}]'
+        )
+
+        resp = client.chat.completions.create(
+            model="gpt-5",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": text},
+            ],
+            max_completion_tokens=8000,
+        )
+        raw = (resp.choices[0].message.content or "").strip()
+        if not raw:
+            raise RuntimeError("Model returned an empty response")
+        if raw.startswith("```"):
+            raw = re.sub(r"^```(?:json)?\s*", "", raw)
+            raw = re.sub(r"\s*```$", "", raw)
+
+        parsed = json.loads(raw)
+        # Handle both array and {"chapters": [...]} responses
+        chapters = parsed.get("chapters") if isinstance(parsed, dict) else parsed
+        if not isinstance(chapters, list):
+            return None
+
+        result = []
+        for ch in chapters:
+            if isinstance(ch, dict) and "title" in ch and "start" in ch:
+                result.append({"title": str(ch["title"])[:80], "start": float(ch["start"])})
+
+        return result if len(result) >= 2 else None
+    except Exception as e:
+        raise RuntimeError(str(e)) from e

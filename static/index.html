@@ -205,15 +205,23 @@
       <div id="t-source-files" class="t-source-files" style="display:none;"></div>
       <div id="t-summary" class="t-summary"></div>
       <button id="btn-generate-summary" class="btn-generate-summary" onclick="generateSummary()" style="display:none">Generate Summary</button>
+      <div id="chapters-nav" class="chapters-nav" style="display:none;"></div>
+      <button id="btn-generate-chapters" class="btn-generate-chapters" onclick="generateChapters()" style="display:none">Generate Chapters</button>
       <button id="btn-retranscribe" class="btn-retranscribe" onclick="retranscribe()" style="display:none">Refresh Word Timestamps</button>
       <div id="action-items-section" class="action-items-section" style="display:none">
-        <div id="user-action-items-group" class="action-items-group" style="display:none">
-          <div class="action-items-header action-items-header-user">Your Action Items</div>
-          <div id="user-action-items-list" class="action-items-list"></div>
+        <div class="action-items-toggle" onclick="toggleActionItems()">
+          <span id="action-items-toggle-label">Action Items</span>
+          <svg id="action-items-chevron" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" style="transition:transform 0.2s"><polyline points="6 9 12 15 18 9"/></svg>
         </div>
-        <div id="all-action-items-group" class="action-items-group">
-          <div class="action-items-header" id="all-action-items-header">Action Items</div>
-          <div id="all-action-items-list" class="action-items-list"></div>
+        <div id="action-items-body">
+          <div id="user-action-items-group" class="action-items-group" style="display:none">
+            <div class="action-items-header action-items-header-user">Your Action Items</div>
+            <div id="user-action-items-list" class="action-items-list"></div>
+          </div>
+          <div id="all-action-items-group" class="action-items-group">
+            <div class="action-items-header" id="all-action-items-header">Action Items</div>
+            <div id="all-action-items-list" class="action-items-list"></div>
+          </div>
         </div>
       </div>
     </div>

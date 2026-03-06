@@ -27,7 +27,7 @@ from storage import (
     save_settings, save_tags, save_transcript, save_voiceprints,
 )
 from transcription import (
-    attach_summary, cleanup_files, extract_duration, extract_utterances,
+    attach_chapters, attach_summary, cleanup_files, extract_duration, extract_utterances,
     handle_transcription_error, save_upload, transcribe_audio,
 )
 from voiceprints import extract_speaker_embedding, match_speakers_to_voiceprints
@@ -98,6 +98,7 @@ async def transcribe(file: UploadFile = File(...), keep_video: bool = Form(False
             transcript["video_file"] = video_filename
 
         await attach_summary(transcript)
+        await attach_chapters(transcript)
         save_transcript(transcript)
         return transcript
 
@@ -354,6 +355,21 @@ async def generate_transcript_summary(transcript_id: str):
         raise HTTPException(status_code=500, detail="Summary generation failed — check your OPENAI_API_KEY")
     save_transcript(transcript)
     return {"summary": transcript["summary"], "action_items": transcript.get("action_items", [])}
+
+
+@app.post("/api/transcripts/{transcript_id}/chapters")
+async def generate_transcript_chapters(transcript_id: str):
+    transcript = load_transcript(transcript_id)
+    if not transcript.get("utterances"):
+        raise HTTPException(status_code=400, detail="No utterances to analyze")
+    try:
+        await attach_chapters(transcript)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Chapter generation failed: {str(e)[:300]}")
+    if not transcript.get("chapters"):
+        raise HTTPException(status_code=500, detail="Chapter generation failed — transcript may be too short or OpenAI key missing")
+    save_transcript(transcript)
+    return {"chapters": transcript["chapters"]}
 
 
 @app.patch("/api/transcripts/{transcript_id}/action-items")
