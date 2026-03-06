@@ -77,6 +77,12 @@ def extract_utterances(result: dict) -> tuple[list, dict]:
             "text": u.get("transcript", ""),
             "start": u.get("start", 0),
             "end": u.get("end", 0),
+            "words": [
+                {"word": w.get("punctuated_word", w.get("word", "")),
+                 "start": w.get("start", 0),
+                 "end": w.get("end", 0)}
+                for w in u.get("words", [])
+            ],
         })
 
     # Fallback: build from words if no utterances
@@ -86,10 +92,16 @@ def extract_utterances(result: dict) -> tuple[list, dict]:
             words = channels[0].get("alternatives", [{}])[0].get("words", [])
             current_speaker = None
             current_text = []
+            current_words = []
             current_start = 0
             current_end = 0
             for w in words:
                 sp = f"Speaker {w.get('speaker', 0) + 1}"
+                word_entry = {
+                    "word": w.get("punctuated_word", w.get("word", "")),
+                    "start": w.get("start", 0),
+                    "end": w.get("end", 0),
+                }
                 if sp != current_speaker:
                     if current_speaker and current_text:
                         speaker_set.add(current_speaker)
@@ -98,13 +110,16 @@ def extract_utterances(result: dict) -> tuple[list, dict]:
                             "text": " ".join(current_text),
                             "start": current_start,
                             "end": current_end,
+                            "words": current_words,
                         })
                     current_speaker = sp
                     current_text = [w.get("punctuated_word", w.get("word", ""))]
+                    current_words = [word_entry]
                     current_start = w.get("start", 0)
                     current_end = w.get("end", 0)
                 else:
                     current_text.append(w.get("punctuated_word", w.get("word", "")))
+                    current_words.append(word_entry)
                     current_end = w.get("end", 0)
             if current_speaker and current_text:
                 speaker_set.add(current_speaker)
@@ -113,6 +128,7 @@ def extract_utterances(result: dict) -> tuple[list, dict]:
                     "text": " ".join(current_text),
                     "start": current_start,
                     "end": current_end,
+                    "words": current_words,
                 })
 
     utterances = merge_short_utterances(utterances)

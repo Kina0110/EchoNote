@@ -29,6 +29,7 @@ def merge_short_utterances(utterances: list, max_gap: float = 15.0) -> list:
         if same_speaker and gap <= max_gap:
             prev["text"] = prev["text"].rstrip(",. ") + " " + u["text"]
             prev["end"] = u["end"]
+            prev["words"] = prev.get("words", []) + u.get("words", [])
         else:
             merged.append(dict(u))
     return merged

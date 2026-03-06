@@ -473,6 +473,39 @@ async def update_settings(request: Request):
     return settings
 
 
+# --- Re-transcribe (regenerate word timestamps) ---
+
+@app.post("/api/transcripts/{transcript_id}/retranscribe")
+async def retranscribe(transcript_id: str):
+    """Re-transcribe an existing transcript's audio to get word-level timestamps."""
+    transcript = load_transcript(transcript_id)
+    audio_file = transcript.get("audio_file")
+    if not audio_file:
+        raise HTTPException(status_code=400, detail="No audio file available for re-transcription")
+    audio_path = AUDIO_DIR / audio_file
+    if not audio_path.exists():
+        raise HTTPException(status_code=404, detail="Audio file missing from disk")
+
+    try:
+        result = await transcribe_audio(audio_path)
+    except Exception as e:
+        raise handle_transcription_error(e)
+
+    utterances, speakers = extract_utterances(result)
+
+    # Preserve existing speaker renames
+    old_speakers = transcript.get("speakers", {})
+    for key in speakers:
+        if key in old_speakers and old_speakers[key] != key:
+            speakers[key] = old_speakers[key]
+
+    transcript["utterances"] = utterances
+    transcript["speakers"] = speakers
+    transcript["full_text"] = generate_full_text(utterances, speakers)
+    save_transcript(transcript)
+    return transcript
+
+
 # --- Media ---
 
 @app.get("/api/transcripts/{transcript_id}/audio")
@@ -502,6 +535,38 @@ async def get_video(transcript_id: str):
 
 
 # --- Copy & Export ---
+
+@app.get("/api/transcripts/{transcript_id}/download")
+async def download_zip(transcript_id: str):
+    """Download transcript as a ZIP containing TXT, SRT, JSON, and audio."""
+    import io
+    import zipfile
+    from starlette.responses import Response
+    from helpers import format_timestamp
+
+    transcript = load_transcript(transcript_id)
+    base_name = Path(transcript["filename"]).stem
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        txt = generate_copy_text(transcript)
+        zf.writestr(f"{base_name}.txt", txt)
+
+    buf.seek(0)
+    return Response(
+        content=buf.getvalue(),
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{base_name}.zip"'},
+    )
+
+
+def _to_srt_time(seconds: float) -> str:
+    """Convert seconds to SRT timestamp format HH:MM:SS,mmm."""
+    h, rem = divmod(int(seconds), 3600)
+    m, s = divmod(rem, 60)
+    ms = int((seconds - int(seconds)) * 1000)
+    return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
+
 
 @app.get("/api/transcripts/{transcript_id}/copytext")
 async def get_copy_text(transcript_id: str):

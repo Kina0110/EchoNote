@@ -681,6 +681,12 @@ function showTranscript(transcript) {
   summaryEl.style.display = transcript.summary ? '' : 'none';
   summaryBtn.style.display = transcript.summary ? 'none' : '';
 
+  // Show re-transcribe button if utterances lack word-level data and audio exists
+  const retranscribeBtn = document.getElementById('btn-retranscribe');
+  const hasWords = transcript.utterances && transcript.utterances.some(u => u.words && u.words.length > 0);
+  const hasAudio = !!transcript.audio_file;
+  retranscribeBtn.style.display = (!hasWords && hasAudio) ? '' : 'none';
+
   renderActionItems();
 
   bookmarkFilterActive = false;
@@ -743,12 +749,17 @@ function renderUtterances() {
     const hasComments = comments[String(i)] && comments[String(i)].length > 0;
     const commentCount = hasComments ? comments[String(i)].length : 0;
 
+    // Render words as individual spans if available, else fall back to plain text
+    const textHtml = (u.words && u.words.length > 0)
+      ? u.words.map(w => `<span class="word" data-start="${w.start}" data-end="${w.end}">${escapeHtml(w.word)}</span>`).join(' ')
+      : escapeHtml(u.text);
+
     return `
-      <div class="utterance ${isBookmarked ? 'bookmarked' : ''} ${hasComments ? 'has-comments' : ''}" data-index="${i}" data-start="${u.start}" data-end="${u.end}" onclick="seekToUtterance(${u.start})" ${hidden}>
+      <div class="utterance ${isBookmarked ? 'bookmarked' : ''} ${hasComments ? 'has-comments' : ''}" data-index="${i}" data-start="${u.start}" data-end="${u.end}" onclick="onUtteranceClick(event, ${i}, ${u.start})" ${hidden}>
         <div class="u-timestamp">${ts}</div>
         <div class="u-content">
           <div class="u-speaker" style="color:${color}">${escapeHtml(displayName)}</div>
-          <div class="u-text">${escapeHtml(u.text)}</div>
+          <div class="u-text">${textHtml}</div>
         </div>
         <button class="u-comment ${hasComments ? 'has-comments' : ''}" onclick="event.stopPropagation(); openCommentInput(${i})" title="${hasComments ? commentCount + ' comment(s)' : 'Add comment'}">
           <svg viewBox="0 0 24 24" width="16" height="16" fill="${hasComments ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
@@ -759,6 +770,31 @@ function renderUtterances() {
       </div>
     `;
   }).join('');
+}
+
+// Two-level click: first click seeks to utterance start, second click on a word seeks to word start
+function onUtteranceClick(event, index, utteranceStart) {
+  const utteranceEl = event.currentTarget;
+  const wordEl = event.target.closest('.word');
+
+  // If this utterance is already in word mode and a word was clicked, seek to word
+  if (utteranceEl.classList.contains('words-active') && wordEl) {
+    const wordStart = parseFloat(wordEl.dataset.start);
+    seekToUtterance(wordStart);
+    return;
+  }
+
+  // Deactivate word mode on any previously active utterance
+  const prevWordsActive = document.querySelector('.utterance.words-active');
+  if (prevWordsActive) prevWordsActive.classList.remove('words-active');
+
+  // Seek to utterance start
+  seekToUtterance(utteranceStart);
+
+  // Activate word mode on this utterance (if it has word spans)
+  if (utteranceEl.querySelector('.word')) {
+    utteranceEl.classList.add('words-active');
+  }
 }
 
 async function toggleBookmark(index) {
@@ -1056,6 +1092,30 @@ async function generateSummary() {
   }
 }
 
+async function retranscribe() {
+  if (!currentTranscript) return;
+  const btn = document.getElementById('btn-retranscribe');
+  btn.textContent = 'Re-transcribing...';
+  btn.disabled = true;
+  try {
+    const res = await fetch(`/api/transcripts/${currentTranscript.id}/retranscribe`, { method: 'POST' });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.detail || 'Re-transcription failed');
+    }
+    const data = await res.json();
+    currentTranscript = data;
+    renderSpeakers();
+    renderUtterances();
+    btn.style.display = 'none';
+    toast('Word timestamps added!', 'success');
+  } catch (e) {
+    toast(e.message, 'error');
+    btn.textContent = 'Refresh Word Timestamps';
+    btn.disabled = false;
+  }
+}
+
 function renderActionItems() {
   const section = document.getElementById('action-items-section');
   const items = currentTranscript.action_items || [];
@@ -1262,6 +1322,14 @@ function exportSrt() {
     srtIndex++;
   });
   downloadFile(srt, currentTranscript.filename.replace(/\.[^.]+$/, '') + '.srt', 'text/srt');
+}
+
+function downloadZip() {
+  if (!currentTranscript) return;
+  const a = document.createElement('a');
+  a.href = `/api/transcripts/${currentTranscript.id}/download`;
+  a.download = '';
+  a.click();
 }
 
 function downloadFile(content, filename, type) {
@@ -1817,12 +1885,38 @@ function highlightCurrentUtterance() {
   const prev = document.querySelector('.utterance.active');
   if (prev && prev !== activeEl) {
     prev.classList.remove('active');
+    // Clear word highlights on the previous utterance
+    const prevWord = prev.querySelector('.word-active');
+    if (prevWord) prevWord.classList.remove('word-active');
   }
   if (activeEl && !activeEl.classList.contains('active')) {
     activeEl.classList.add('active');
     // Auto-scroll to keep active utterance visible
     if (autoScrollEnabled) {
       scrollToUtterance(activeEl);
+    }
+  }
+
+  // Word-level highlight within active utterance
+  if (activeEl) {
+    const wordSpans = activeEl.querySelectorAll('.word');
+    if (wordSpans.length > 0) {
+      let activeWord = null;
+      for (const ws of wordSpans) {
+        const wStart = parseFloat(ws.dataset.start);
+        const wEnd = parseFloat(ws.dataset.end);
+        if (time >= wStart && time < wEnd) {
+          activeWord = ws;
+          break;
+        }
+      }
+      const prevWord = activeEl.querySelector('.word-active');
+      if (prevWord && prevWord !== activeWord) {
+        prevWord.classList.remove('word-active');
+      }
+      if (activeWord && !activeWord.classList.contains('word-active')) {
+        activeWord.classList.add('word-active');
+      }
     }
   }
 }
