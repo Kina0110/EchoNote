@@ -6,7 +6,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>Transcribbly</title>
-  <link rel="stylesheet" href="/static/style.css?v=29">
+  <link rel="stylesheet" href="/static/style.css?v=35">
 </head>
 <body>
   <!-- Toast container -->
@@ -150,16 +150,20 @@
         Back
       </button>
       <div class="action-buttons">
-        <button class="btn-copy" onclick="copyForChatGPT()">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
-            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+        <button class="btn-secondary btn-with-icon" onclick="copyForChatGPT()"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>Copy</button>
+        <div class="export-dropdown" id="export-dropdown">
+          <button class="btn-secondary export-toggle-btn" onclick="toggleExportMenu()">Export</button>
+          <div class="export-menu" id="export-menu">
+            <button onclick="exportTxt(); closeExportMenu()">Export .txt</button>
+            <button onclick="exportSrt(); closeExportMenu()">Export .srt</button>
+            <button onclick="downloadZip(); closeExportMenu()">Download .zip</button>
+          </div>
+        </div>
+        <button class="btn-icon btn-chat-toggle" id="btn-chat-toggle" onclick="toggleChat()" title="Chat with transcript">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/>
           </svg>
-          Copy for ChatGPT
         </button>
-        <button class="btn-secondary" onclick="exportTxt()">Export .txt</button>
-        <button class="btn-secondary" onclick="exportSrt()">Export .srt</button>
-        <button class="btn-secondary" onclick="downloadZip()">Download .zip</button>
         <button class="btn-icon btn-comments-toggle" id="btn-comments-toggle" onclick="toggleCommentsSidebar()" title="Comments">
           <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
@@ -211,9 +215,9 @@
       <div id="action-items-section" class="action-items-section" style="display:none">
         <div class="action-items-toggle" onclick="toggleActionItems()">
           <span id="action-items-toggle-label">Action Items</span>
-          <svg id="action-items-chevron" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" style="transition:transform 0.2s"><polyline points="6 9 12 15 18 9"/></svg>
+          <svg id="action-items-chevron" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" style="transition:transform 0.2s;transform:rotate(-90deg)"><polyline points="6 9 12 15 18 9"/></svg>
         </div>
-        <div id="action-items-body">
+        <div id="action-items-body" style="display:none">
           <div id="user-action-items-group" class="action-items-group" style="display:none">
             <div class="action-items-header action-items-header-user">Your Action Items</div>
             <div id="user-action-items-list" class="action-items-list"></div>
@@ -266,6 +270,53 @@
     <!-- Utterances -->
     <div id="utterances" class="utterances"></div>
 
+    <!-- Chat Panel -->
+    <div id="chat-panel" class="chat-panel">
+      <!-- Thread list view -->
+      <div id="chat-thread-list-view" class="chat-view">
+        <div class="chat-panel-header">
+          <h3>Chats</h3>
+          <div class="chat-header-actions">
+            <button class="chat-new-btn" onclick="newChatThread()" title="New Chat">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              New Chat
+            </button>
+            <button class="btn-icon" onclick="toggleChat()" title="Close">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M18 6L6 18M6 6l12 12"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+        <div class="chat-thread-list" id="chat-thread-list">
+          <div class="chat-empty">No chats yet. Start a new one!</div>
+        </div>
+      </div>
+      <!-- Message view -->
+      <div id="chat-message-view" class="chat-view" style="display:none;">
+        <div class="chat-panel-header">
+          <button class="chat-back-btn" onclick="backToChatList()">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+          </button>
+          <h3 id="chat-thread-title">Chat</h3>
+          <button class="btn-icon" onclick="toggleChat()" title="Close">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M18 6L6 18M6 6l12 12"/>
+            </svg>
+          </button>
+        </div>
+        <div class="chat-messages" id="chat-messages">
+          <div class="chat-empty">Ask a question about this transcript...</div>
+        </div>
+        <div class="chat-input-row">
+          <input type="text" id="chat-input" placeholder="Ask about this transcript..." onkeydown="if(event.key==='Enter') sendChatMessage()">
+          <button class="chat-send-btn" id="chat-send-btn" onclick="sendChatMessage()">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+          </button>
+        </div>
+      </div>
+    </div>
+
     <!-- Comments Sidebar -->
     <div id="comments-sidebar" class="comments-sidebar">
       <div class="comments-sidebar-header">
@@ -310,6 +361,16 @@
         </div>
         <button class="btn-save-settings" id="btn-save-settings" onclick="saveSettings()">Save Profile</button>
         <span class="settings-saved-indicator" id="settings-saved-indicator" style="display:none">Saved!</span>
+      </div>
+
+      <div class="settings-section">
+        <h3 class="settings-section-title">Features</h3>
+        <p class="settings-section-desc">Toggle optional features on or off.</p>
+        <label class="settings-toggle-row">
+          <input type="checkbox" id="settings-chat-enabled" checked onchange="saveFeatureSettings()">
+          <span>Transcript Chat</span>
+          <span class="settings-toggle-desc">Ask AI questions about your transcripts</span>
+        </label>
       </div>
 
       <div class="settings-section">
@@ -374,6 +435,6 @@
     </div>
   </div>
 
-  <script src="/static/app.js?v=30"></script>
+  <script src="/static/app.js?v=37"></script>
 </body>
 </html>

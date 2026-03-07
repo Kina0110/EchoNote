@@ -33,6 +33,11 @@ let userSettings = {};
 let commentsSidebarOpen = false;
 let activeCommentPopover = null;
 
+// Chat state
+let chatOpen = false;
+let chatThreads = [];
+let activeChatId = null;
+
 const SPEAKER_COLORS = [
   '#58a6ff', '#f78166', '#7ee787', '#d2a8ff',
   '#ff7b72', '#79c0ff', '#ffa657', '#a5d6ff',
@@ -687,7 +692,7 @@ function showTranscript(transcript) {
   const hasAudio = !!transcript.audio_file;
   retranscribeBtn.style.display = (!hasWords && hasAudio) ? '' : 'none';
 
-  actionItemsCollapsed = false;
+  actionItemsCollapsed = true;
   renderActionItems();
   renderChaptersNav();
 
@@ -703,6 +708,19 @@ function showTranscript(transcript) {
   commentsSidebarOpen = false;
   const cSidebar = document.getElementById('comments-sidebar');
   if (cSidebar) cSidebar.classList.remove('open');
+
+  // Reset chat
+  chatOpen = false;
+  chatThreads = [];
+  activeChatId = null;
+  const chatPanel = document.getElementById('chat-panel');
+  if (chatPanel) chatPanel.classList.remove('open');
+  const chatBtn = document.getElementById('btn-chat-toggle');
+  if (chatBtn) {
+    chatBtn.classList.remove('active');
+    chatBtn.style.display = (userSettings.features?.chat_enabled === false) ? 'none' : '';
+  }
+  loadChatThreads();
 
   switchView('view-transcript');
 }
@@ -768,6 +786,9 @@ function renderUtterances() {
           <div class="u-speaker" style="color:${color}">${escapeHtml(displayName)}</div>
           <div class="u-text">${textHtml}</div>
         </div>
+        <button class="u-copy" onclick="event.stopPropagation(); copyUtterance(${i})" title="Copy">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+        </button>
         <button class="u-comment ${hasComments ? 'has-comments' : ''}" onclick="event.stopPropagation(); openCommentInput(${i})" title="${hasComments ? commentCount + ' comment(s)' : 'Add comment'}">
           <svg viewBox="0 0 24 24" width="16" height="16" fill="${hasComments ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
         </button>
@@ -801,6 +822,21 @@ function onUtteranceClick(event, index, utteranceStart) {
   // Activate word mode on this utterance (if it has word spans)
   if (utteranceEl.querySelector('.word')) {
     utteranceEl.classList.add('words-active');
+  }
+}
+
+async function copyUtterance(index) {
+  const u = currentTranscript.utterances[index];
+  if (!u) return;
+  const name = currentTranscript.speakers[u.speaker] || u.speaker;
+  const text = `${name}: ${u.text}`;
+  try {
+    await copyToClipboard(text);
+    toast('Copied!', 'success');
+    const btn = document.querySelector(`.utterance[data-index="${index}"] .u-copy`);
+    if (btn) { btn.classList.add('copied'); setTimeout(() => btn.classList.remove('copied'), 1500); }
+  } catch (e) {
+    toast('Failed to copy', 'error');
   }
 }
 
@@ -1442,6 +1478,31 @@ function downloadFile(content, filename, type) {
   URL.revokeObjectURL(url);
 }
 
+// === Export Menu ===
+function toggleExportMenu() {
+  const menu = document.getElementById('export-menu');
+  const isOpen = menu.classList.contains('open');
+  if (isOpen) {
+    closeExportMenu();
+  } else {
+    menu.classList.add('open');
+    document.addEventListener('click', handleExportMenuOutsideClick);
+  }
+}
+
+function closeExportMenu() {
+  const menu = document.getElementById('export-menu');
+  if (menu) menu.classList.remove('open');
+  document.removeEventListener('click', handleExportMenuOutsideClick);
+}
+
+function handleExportMenuOutsideClick(e) {
+  const dropdown = document.getElementById('export-dropdown');
+  if (dropdown && !dropdown.contains(e.target)) {
+    closeExportMenu();
+  }
+}
+
 // === Settings ===
 async function loadSettings() {
   try {
@@ -1458,6 +1519,8 @@ async function showSettings() {
   document.getElementById('settings-name').value = profile.name || '';
   document.getElementById('settings-role').value = profile.role || '';
   document.getElementById('settings-saved-indicator').style.display = 'none';
+  const chatCheckbox = document.getElementById('settings-chat-enabled');
+  if (chatCheckbox) chatCheckbox.checked = userSettings.features?.chat_enabled !== false;
   switchView('view-settings');
 }
 
@@ -1482,6 +1545,216 @@ async function saveSettings() {
   } finally {
     btn.disabled = false;
     btn.textContent = 'Save Profile';
+  }
+}
+
+// === Chat ===
+function toggleChat() {
+  chatOpen = !chatOpen;
+  const panel = document.getElementById('chat-panel');
+  const btn = document.getElementById('btn-chat-toggle');
+  panel.classList.toggle('open', chatOpen);
+  if (btn) btn.classList.toggle('active', chatOpen);
+  if (chatOpen && !activeChatId) {
+    renderChatThreadList();
+  }
+}
+
+async function loadChatThreads() {
+  if (!currentTranscript) { chatThreads = []; return; }
+  try {
+    const res = await fetch(`/api/transcripts/${currentTranscript.id}/chats`);
+    chatThreads = await res.json();
+  } catch (e) {
+    chatThreads = [];
+  }
+  if (chatOpen) renderChatThreadList();
+}
+
+function renderChatThreadList() {
+  const listView = document.getElementById('chat-thread-list-view');
+  const msgView = document.getElementById('chat-message-view');
+  listView.style.display = '';
+  msgView.style.display = 'none';
+  activeChatId = null;
+
+  const list = document.getElementById('chat-thread-list');
+  if (chatThreads.length === 0) {
+    list.innerHTML = '<div class="chat-empty">No chats yet. Start a new one!</div>';
+    return;
+  }
+  list.innerHTML = chatThreads.map(t => {
+    const date = new Date(t.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    return `
+      <div class="chat-thread-item" onclick="selectChatThread('${t.id}')">
+        <div class="chat-thread-info">
+          <div class="chat-thread-title">${escapeHtml(t.title)}</div>
+          <div class="chat-thread-meta">${date} &middot; ${t.message_count} messages</div>
+        </div>
+        <button class="chat-thread-delete" onclick="event.stopPropagation(); deleteChatThread('${t.id}')" title="Delete">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+        </button>
+      </div>
+    `;
+  }).join('');
+}
+
+async function selectChatThread(chatId) {
+  if (!currentTranscript) return;
+  activeChatId = chatId;
+
+  // Fetch full thread data
+  try {
+    const res = await fetch(`/api/transcripts/${currentTranscript.id}`);
+    const transcript = await res.json();
+    const thread = (transcript.chat_threads || []).find(t => t.id === chatId);
+    if (!thread) { toast('Chat not found', 'error'); return; }
+
+    // Switch to message view
+    document.getElementById('chat-thread-list-view').style.display = 'none';
+    document.getElementById('chat-message-view').style.display = '';
+    document.getElementById('chat-thread-title').textContent = thread.title;
+
+    renderChatMessages(thread.messages);
+    setTimeout(() => document.getElementById('chat-input')?.focus(), 100);
+  } catch (e) {
+    toast('Failed to load chat', 'error');
+  }
+}
+
+function renderChatMessages(messages) {
+  const container = document.getElementById('chat-messages');
+  if (!messages || messages.length === 0) {
+    container.innerHTML = '<div class="chat-empty">Ask a question about this transcript...</div>';
+    return;
+  }
+  container.innerHTML = messages.map((msg, i) => {
+    const cls = msg.role === 'user' ? 'chat-msg user' : 'chat-msg ai';
+    return `<div class="${cls}"><span class="chat-msg-text">${escapeHtml(msg.content)}</span><button class="chat-msg-copy" onclick="event.stopPropagation(); copyChatMsg(this)" title="Copy"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button></div>`;
+  }).join('');
+  container.scrollTop = container.scrollHeight;
+}
+
+async function newChatThread() {
+  if (!currentTranscript) return;
+  try {
+    const res = await fetch(`/api/transcripts/${currentTranscript.id}/chats`, { method: 'POST' });
+    if (!res.ok) throw new Error('Failed to create chat');
+    const thread = await res.json();
+    chatThreads.unshift({ id: thread.id, title: thread.title, created_at: thread.created_at, message_count: 0 });
+    selectChatThread(thread.id);
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+}
+
+async function deleteChatThread(chatId) {
+  if (!currentTranscript) return;
+  try {
+    const res = await fetch(`/api/transcripts/${currentTranscript.id}/chats/${chatId}`, { method: 'DELETE' });
+    if (!res.ok) throw new Error('Failed to delete chat');
+    chatThreads = chatThreads.filter(t => t.id !== chatId);
+    if (activeChatId === chatId) activeChatId = null;
+    renderChatThreadList();
+    toast('Chat deleted', 'success');
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+}
+
+function backToChatList() {
+  activeChatId = null;
+  loadChatThreads();
+  renderChatThreadList();
+}
+
+async function copyChatMsg(btn) {
+  const msgEl = btn.closest('.chat-msg');
+  const textEl = msgEl.querySelector('.chat-msg-text');
+  const text = textEl ? textEl.textContent : msgEl.textContent;
+  try {
+    await copyToClipboard(text);
+    toast('Copied!', 'success');
+    btn.classList.add('copied');
+    setTimeout(() => btn.classList.remove('copied'), 1500);
+  } catch (e) {
+    toast('Failed to copy', 'error');
+  }
+}
+
+async function sendChatMessage() {
+  const input = document.getElementById('chat-input');
+  const message = input?.value.trim();
+  if (!message || !currentTranscript || !activeChatId) return;
+  input.value = '';
+
+  // Optimistically show user message
+  const container = document.getElementById('chat-messages');
+  const emptyEl = container.querySelector('.chat-empty');
+  if (emptyEl) emptyEl.remove();
+  const userEl = document.createElement('div');
+  userEl.className = 'chat-msg user';
+  userEl.innerHTML = `<span class="chat-msg-text">${escapeHtml(message)}</span><button class="chat-msg-copy" onclick="event.stopPropagation(); copyChatMsg(this)" title="Copy"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>`;
+  container.appendChild(userEl);
+
+  // Show typing indicator
+  const typingEl = document.createElement('div');
+  typingEl.className = 'chat-msg ai chat-typing';
+  typingEl.textContent = 'Thinking...';
+  container.appendChild(typingEl);
+  container.scrollTop = container.scrollHeight;
+
+  const sendBtn = document.getElementById('chat-send-btn');
+  if (sendBtn) sendBtn.disabled = true;
+
+  try {
+    const res = await fetch(`/api/transcripts/${currentTranscript.id}/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message, chat_id: activeChatId }),
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.detail || 'Chat failed');
+    }
+    const data = await res.json();
+
+    typingEl.remove();
+    const aiEl = document.createElement('div');
+    aiEl.className = 'chat-msg ai';
+    aiEl.innerHTML = `<span class="chat-msg-text">${escapeHtml(data.reply)}</span><button class="chat-msg-copy" onclick="event.stopPropagation(); copyChatMsg(this)" title="Copy"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>`;
+    container.appendChild(aiEl);
+    container.scrollTop = container.scrollHeight;
+
+    // Update thread title in sidebar list if it was auto-titled
+    const thread = chatThreads.find(t => t.id === activeChatId);
+    if (thread && thread.title === 'New chat') {
+      thread.title = message.substring(0, 50) + (message.length > 50 ? '...' : '');
+      document.getElementById('chat-thread-title').textContent = thread.title;
+    }
+    if (thread) thread.message_count += 2;
+  } catch (e) {
+    typingEl.remove();
+    userEl.remove();
+    toast('Chat error: ' + e.message, 'error');
+  } finally {
+    if (sendBtn) sendBtn.disabled = false;
+  }
+}
+
+async function saveFeatureSettings() {
+  const chatEnabled = document.getElementById('settings-chat-enabled')?.checked ?? true;
+  try {
+    const res = await fetch('/api/settings', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ features: { chat_enabled: chatEnabled } }),
+    });
+    if (!res.ok) throw new Error('Failed to save');
+    userSettings = await res.json();
+    toast('Feature settings saved', 'success');
+  } catch (e) {
+    toast('Failed to save feature settings', 'error');
   }
 }
 
@@ -1579,6 +1852,11 @@ function showHome() {
   commentsSidebarOpen = false;
   const cSidebar = document.getElementById('comments-sidebar');
   if (cSidebar) cSidebar.classList.remove('open');
+  chatOpen = false;
+  chatThreads = [];
+  activeChatId = null;
+  const chatPanel = document.getElementById('chat-panel');
+  if (chatPanel) chatPanel.classList.remove('open');
   currentTranscript = null;
   localStorage.removeItem('lastTranscriptId');
   switchView('view-home');
