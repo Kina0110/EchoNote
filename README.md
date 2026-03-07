@@ -1,4 +1,4 @@
-# Voice Transcriber
+# EchoNote
 
 A local web app that transcribes audio and video files with automatic speaker detection. Upload recordings, get clean transcripts with speaker labels and timestamps, and copy them straight into ChatGPT.
 
