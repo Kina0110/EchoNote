@@ -6,7 +6,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>Transcribbly</title>
-  <link rel="stylesheet" href="/static/style.css?v=37">
+  <link rel="stylesheet" href="/static/style.css?v=38">
 </head>
 <body>
   <!-- Toast container -->
@@ -189,6 +189,15 @@
           </div>
         </div>
         <div class="player-time" id="player-total">0:00</div>
+        <div class="volume-control" id="volume-control">
+          <button class="volume-btn" id="volume-btn" onclick="toggleMute()" title="Volume">
+            <svg id="volume-icon-on" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+            <svg id="volume-icon-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>
+          </button>
+          <div class="volume-slider-popup" id="volume-slider-popup">
+            <input type="range" class="volume-slider" id="volume-slider" min="0" max="1" step="0.05" value="1" oninput="setVolume(this.value)">
+          </div>
+        </div>
         <button class="speed-btn" id="speed-btn" onclick="cycleSpeed()">1x</button>
       </div>
     </div>
@@ -551,6 +560,6 @@
     </div>
   </div>
 
-  <script src="/static/app.js?v=40"></script>
+  <script src="/static/app.js?v=41"></script>
 </body>
 </html>

@@ -2375,6 +2375,49 @@ function cycleSpeed() {
   document.getElementById('speed-btn').textContent = speed + 'x';
 }
 
+function setVolume(val) {
+  const v = parseFloat(val);
+  const media = getMediaElement();
+  media.volume = v;
+  media.muted = v === 0;
+  updateVolumeIcon(v);
+}
+
+function toggleMute() {
+  const media = getMediaElement();
+  media.muted = !media.muted;
+  const slider = document.getElementById('volume-slider');
+  if (media.muted) {
+    updateVolumeIcon(0);
+  } else {
+    updateVolumeIcon(media.volume);
+    if (slider) slider.value = media.volume;
+  }
+  // Toggle slider popup
+  const control = document.getElementById('volume-control');
+  control.classList.toggle('open');
+}
+
+function updateVolumeIcon(vol) {
+  const on = document.getElementById('volume-icon-on');
+  const off = document.getElementById('volume-icon-off');
+  if (vol === 0) {
+    on.style.display = 'none';
+    off.style.display = '';
+  } else {
+    on.style.display = '';
+    off.style.display = 'none';
+  }
+}
+
+// Close volume popup when clicking outside
+document.addEventListener('click', (e) => {
+  const control = document.getElementById('volume-control');
+  if (control && !control.contains(e.target)) {
+    control.classList.remove('open');
+  }
+});
+
 function togglePlayback() {
   const media = getMediaElement();
   if (!media.src || media.src === window.location.href) return;
