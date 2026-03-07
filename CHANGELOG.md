@@ -1,6 +1,39 @@
 # Changelog
 
-## 2026-03-06 (latest)
+## 2026-03-07 (latest)
+
+### Transcript Chat (AI)
+- Chat with any transcript — ask questions and get AI answers based on the content
+- Uses GPT-5 mini for cost efficiency (~$0.004 per message vs $0.02 with GPT-5)
+- AI receives enriched context: summary + chapters for better answers (not action items)
+- Toggle chat on/off in Settings > Features
+
+### Persistent Chat Threads
+- Chat history saved server-side in the transcript JSON (survives page refresh)
+- Multiple chat threads per transcript with ChatGPT-style sidebar list
+- "New Chat" button to start fresh conversations
+- Thread auto-titles from the first user message
+- Delete threads from the sidebar
+- New endpoints: GET/POST/DELETE `/chats`, POST `/chat` with `chat_id`
+
+### Copy Buttons
+- Copy button on each utterance — hover to reveal, copies "Speaker: text"
+- Copy button on each chat message (user & AI) — hover to reveal
+- "Copied!" toast confirmation on all copy actions
+
+### Export Dropdown
+- Collapsed Export .txt, .srt, .zip into a single dropdown menu
+- Reduced action bar clutter from 5+ buttons to 3 (Copy, Export, Chat, Comments)
+
+### UI Fixes
+- Action items collapsed by default
+- Chat panel sticky at bottom of viewport
+- Fixed Copy vs Export button size mismatch
+- Copy button SVG icon with consistent sizing
+
+---
+
+## 2026-03-06
 
 ### Chapters
 - Auto-generate topic chapters for any transcript using GPT-5

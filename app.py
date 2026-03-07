@@ -26,6 +26,7 @@ from storage import (
     iter_transcripts, load_settings, load_tags, load_transcript, load_voiceprints,
     save_settings, save_tags, save_transcript, save_voiceprints,
 )
+from ai import chat_with_transcript
 from transcription import (
     attach_chapters, attach_summary, cleanup_files, extract_duration, extract_utterances,
     handle_transcription_error, save_upload, transcribe_audio,
@@ -372,6 +373,97 @@ async def generate_transcript_chapters(transcript_id: str):
     return {"chapters": transcript["chapters"]}
 
 
+# --- Chat Threads ---
+
+@app.get("/api/transcripts/{transcript_id}/chats")
+async def list_chat_threads(transcript_id: str):
+    transcript = load_transcript(transcript_id)
+    threads = transcript.get("chat_threads", [])
+    return [
+        {
+            "id": t["id"],
+            "title": t["title"],
+            "created_at": t["created_at"],
+            "message_count": len(t.get("messages", [])),
+        }
+        for t in threads
+    ]
+
+
+@app.post("/api/transcripts/{transcript_id}/chats")
+async def create_chat_thread(transcript_id: str):
+    transcript = load_transcript(transcript_id)
+    threads = transcript.get("chat_threads", [])
+    thread = {
+        "id": str(uuid.uuid4())[:8],
+        "title": "New chat",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "messages": [],
+    }
+    threads.append(thread)
+    transcript["chat_threads"] = threads
+    save_transcript(transcript)
+    return thread
+
+
+@app.delete("/api/transcripts/{transcript_id}/chats/{chat_id}")
+async def delete_chat_thread(transcript_id: str, chat_id: str):
+    transcript = load_transcript(transcript_id)
+    threads = transcript.get("chat_threads", [])
+    transcript["chat_threads"] = [t for t in threads if t["id"] != chat_id]
+    save_transcript(transcript)
+    return {"ok": True}
+
+
+@app.post("/api/transcripts/{transcript_id}/chat")
+async def chat_about_transcript(transcript_id: str, request: Request):
+    body = await request.json()
+    message = body.get("message", "").strip()
+    chat_id = body.get("chat_id")
+    if not message:
+        raise HTTPException(status_code=400, detail="Message cannot be empty")
+    if not chat_id:
+        raise HTTPException(status_code=400, detail="chat_id is required")
+    transcript = load_transcript(transcript_id)
+    if not transcript.get("full_text"):
+        raise HTTPException(status_code=400, detail="No transcript text available")
+
+    # Find the thread
+    threads = transcript.get("chat_threads", [])
+    thread = next((t for t in threads if t["id"] == chat_id), None)
+    if not thread:
+        raise HTTPException(status_code=404, detail="Chat thread not found")
+
+    # Build history from persisted messages
+    history = [{"role": m["role"], "content": m["content"]} for m in thread["messages"]]
+
+    # Build enriched context with metadata
+    context_parts = []
+    if transcript.get("summary"):
+        context_parts.append(f"SUMMARY: {transcript['summary']}")
+    if transcript.get("chapters"):
+        ch_list = [f"- [{ch['start']:.0f}s] {ch['title']}" for ch in transcript["chapters"]]
+        context_parts.append("CHAPTERS:\n" + "\n".join(ch_list))
+    context_parts.append(transcript["full_text"])
+    enriched_text = "\n\n".join(context_parts)
+
+    result = await asyncio.to_thread(chat_with_transcript, enriched_text, message, history)
+    if not result:
+        raise HTTPException(status_code=500, detail="Chat failed — check your OPENAI_API_KEY")
+
+    # Persist both messages
+    thread["messages"].append({"role": "user", "content": message})
+    thread["messages"].append({"role": "assistant", "content": result["reply"]})
+
+    # Auto-title from first user message
+    if len(thread["messages"]) == 2 and thread["title"] == "New chat":
+        thread["title"] = message[:50] + ("..." if len(message) > 50 else "")
+
+    transcript["chat_threads"] = threads
+    save_transcript(transcript)
+    return {"reply": result["reply"]}
+
+
 @app.patch("/api/transcripts/{transcript_id}/action-items")
 async def update_action_item(transcript_id: str, request: Request):
     body = await request.json()
@@ -485,6 +577,10 @@ async def update_settings(request: Request):
             "name": str(profile.get("name", "")).strip(),
             "role": str(profile.get("role", "")).strip(),
         }
+    if "features" in body:
+        features = settings.get("features", {})
+        features.update(body["features"])
+        settings["features"] = features
     save_settings(settings)
     return settings
 

@@ -96,6 +96,50 @@ def generate_summary(full_text: str, user_name: str | None = None) -> dict | Non
         return None
 
 
+def chat_with_transcript(full_text: str, message: str, history: list) -> dict | None:
+    """Chat about a transcript using GPT-5. Returns dict with reply and usage, or None."""
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        return None
+    try:
+        client = OpenAI(api_key=api_key)
+        text = full_text[:50000]
+
+        system_prompt = (
+            "You are a helpful assistant answering questions about a meeting transcript. "
+            "Answer based only on the transcript provided. Be concise and direct.\n\n"
+            "TRANSCRIPT:\n" + text
+        )
+
+        messages = [{"role": "system", "content": system_prompt}]
+        for msg in history:
+            messages.append({"role": msg["role"], "content": msg["content"]})
+        messages.append({"role": "user", "content": message})
+
+        resp = client.chat.completions.create(
+            model="gpt-5-mini",
+            messages=messages,
+            max_completion_tokens=2000,
+        )
+        usage = resp.usage
+        input_tokens = usage.prompt_tokens if usage else 0
+        output_tokens = usage.completion_tokens if usage else 0
+        # GPT-5 mini: $0.25/1M input, $2.00/1M output
+        mini_input_cost = 0.25 / 1_000_000
+        mini_output_cost = 2.00 / 1_000_000
+        cost = (input_tokens * mini_input_cost) + (output_tokens * mini_output_cost)
+
+        reply = (resp.choices[0].message.content or "").strip()
+        return {
+            "reply": reply,
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "cost": round(cost, 6),
+        }
+    except Exception:
+        return None
+
+
 def generate_chapters(utterances: list, speakers: dict) -> list | None:
     """Generate chapter titles with timestamps using GPT-5. Returns list of {title, start} or None."""
     api_key = os.getenv("OPENAI_API_KEY")
