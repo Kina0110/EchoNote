@@ -2,6 +2,15 @@
 
 ## 2026-03-07 (latest)
 
+### Expanded Settings
+- **Transcription**: Default language (14 languages), auto-summary toggle, auto-chapters toggle, speaker count hint
+- **Display**: Default playback speed, show/hide timestamps, transcript font size (small/medium/large)
+- **Export**: Default format, include/exclude speaker names, include/exclude timestamps in exports
+- **AI / Chat**: Switch between GPT-5 Mini (cheaper) and GPT-5 (higher quality), configurable max chat history
+- **Notifications**: Monthly cost alert threshold — warns after transcription if exceeded
+- All new settings auto-save on change (no save button needed)
+- Backend: transcription endpoints respect language/auto-summary/auto-chapters settings; chat endpoint uses configured model and history limit
+
 ### Transcript Chat (AI)
 - Chat with any transcript — ask questions and get AI answers based on the content
 - Uses GPT-5 mini for cost efficiency (~$0.004 per message vs $0.02 with GPT-5)

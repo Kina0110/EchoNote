@@ -52,10 +52,15 @@ document.addEventListener('DOMContentLoaded', () => {
   setupFileInput();
   setupKeyboardShortcut();
   
-  // Restore last viewed transcript on page refresh
-  const lastTranscriptId = localStorage.getItem('lastTranscriptId');
-  if (lastTranscriptId) {
-    openTranscript(lastTranscriptId);
+  // Restore last view on page refresh
+  const lastView = localStorage.getItem('lastView');
+  if (lastView === 'view-settings') {
+    showSettings();
+  } else {
+    const lastTranscriptId = localStorage.getItem('lastTranscriptId');
+    if (lastTranscriptId) {
+      openTranscript(lastTranscriptId);
+    }
   }
 });
 
@@ -277,6 +282,7 @@ async function uploadFile(file) {
 
     showTranscript(result);
     loadTranscripts();
+    checkCostAlert();
   } catch (e) {
     toast(e.message, 'error');
   }
@@ -298,6 +304,7 @@ async function uploadMultipleFiles(fileList) {
 
     showTranscript(result);
     loadTranscripts();
+    checkCostAlert();
   } catch (e) {
     toast(e.message, 'error');
   }
@@ -703,6 +710,13 @@ function showTranscript(transcript) {
   renderSpeakers();
   renderTranscriptTags();
   renderUtterances();
+
+  // Apply font size setting
+  const fontSize = (userSettings.display || {}).transcript_font_size || 'medium';
+  const utterancesEl = document.getElementById('utterances');
+  utterancesEl.classList.remove('font-small', 'font-medium', 'font-large');
+  utterancesEl.classList.add('font-' + fontSize);
+
   setupAudioPlayer(transcript);
   updateCommentsBadge();
   commentsSidebarOpen = false;
@@ -747,6 +761,7 @@ function renderUtterances() {
   const speakers = Object.keys(currentTranscript.speakers);
   const bookmarks = currentTranscript.bookmarks || [];
   const chapterMap = buildChapterMap(currentTranscript.utterances, currentTranscript.chapters);
+  const showTimestamps = (userSettings.display || {}).show_timestamps !== false;
 
   container.innerHTML = currentTranscript.utterances.map((u, i) => {
     const chapterHeader = chapterMap[i]
@@ -781,7 +796,7 @@ function renderUtterances() {
 
     return chapterHeader + `
       <div class="utterance ${isBookmarked ? 'bookmarked' : ''} ${hasComments ? 'has-comments' : ''}" data-index="${i}" data-start="${u.start}" data-end="${u.end}" onclick="onUtteranceClick(event, ${i}, ${u.start})" ${hidden}>
-        <div class="u-timestamp">${ts}</div>
+        <div class="u-timestamp" ${showTimestamps ? '' : 'style="display:none"'}>${ts}</div>
         <div class="u-content">
           <div class="u-speaker" style="color:${color}">${escapeHtml(displayName)}</div>
           <div class="u-text">${textHtml}</div>
@@ -1438,15 +1453,32 @@ async function copyForChatGPT() {
 
 function exportTxt() {
   if (!currentTranscript) return;
-  fetch(`/api/transcripts/${currentTranscript.id}/copytext`)
-    .then(res => res.text())
-    .then(text => {
-      downloadFile(text, currentTranscript.filename.replace(/\.[^.]+$/, '') + '.txt', 'text/plain');
-    });
+  const exportSettings = userSettings.export || {};
+  const includeSpeakers = exportSettings.include_speaker_names !== false;
+  const includeTimestamps = exportSettings.include_timestamps !== false;
+
+  let lines = [];
+  currentTranscript.utterances.forEach((u) => {
+    if (u.type === 'file-boundary') {
+      lines.push('--- ' + u.filename + ' ---');
+      return;
+    }
+    const name = currentTranscript.speakers[u.speaker] || u.speaker;
+    const ts = formatTimestamp(u.start);
+    let line = '';
+    if (includeTimestamps) line += '[' + ts + '] ';
+    if (includeSpeakers) line += name + ': ';
+    line += u.text;
+    lines.push(line);
+  });
+  const text = lines.join('\n');
+  downloadFile(text, currentTranscript.filename.replace(/\.[^.]+$/, '') + '.txt', 'text/plain');
 }
 
 function exportSrt() {
   if (!currentTranscript) return;
+  const exportSettings = userSettings.export || {};
+  const includeSpeakers = exportSettings.include_speaker_names !== false;
   let srt = '';
   let srtIndex = 1;
   currentTranscript.utterances.forEach((u) => {
@@ -1454,7 +1486,8 @@ function exportSrt() {
     const startSrt = toSrtTime(u.start);
     const endSrt = toSrtTime(u.end);
     const name = currentTranscript.speakers[u.speaker] || u.speaker;
-    srt += `${srtIndex}\n${startSrt} --> ${endSrt}\n${name}: ${u.text}\n\n`;
+    const text = includeSpeakers ? `${name}: ${u.text}` : u.text;
+    srt += `${srtIndex}\n${startSrt} --> ${endSrt}\n${text}\n\n`;
     srtIndex++;
   });
   downloadFile(srt, currentTranscript.filename.replace(/\.[^.]+$/, '') + '.srt', 'text/srt');
@@ -1513,6 +1546,15 @@ async function loadSettings() {
   }
 }
 
+function setSelectValue(id, value) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const strVal = String(value ?? '');
+  for (const opt of el.options) {
+    if (opt.value === strVal) { el.value = strVal; return; }
+  }
+}
+
 async function showSettings() {
   await loadSettings();
   const profile = userSettings.profile || {};
@@ -1521,7 +1563,86 @@ async function showSettings() {
   document.getElementById('settings-saved-indicator').style.display = 'none';
   const chatCheckbox = document.getElementById('settings-chat-enabled');
   if (chatCheckbox) chatCheckbox.checked = userSettings.features?.chat_enabled !== false;
+
+  // Transcription
+  const ts = userSettings.transcription || {};
+  setSelectValue('settings-language', ts.default_language || 'auto');
+  const autoSummary = document.getElementById('settings-auto-summary');
+  if (autoSummary) autoSummary.checked = ts.auto_summary !== false;
+  const autoChapters = document.getElementById('settings-auto-chapters');
+  if (autoChapters) autoChapters.checked = ts.auto_chapters !== false;
+
+  // Display
+  const ds = userSettings.display || {};
+  setSelectValue('settings-playback-speed', ds.default_playback_speed || 1);
+  const showTs = document.getElementById('settings-show-timestamps');
+  if (showTs) showTs.checked = ds.show_timestamps !== false;
+  setSelectValue('settings-font-size', ds.transcript_font_size || 'medium');
+
+  // Export
+  const ex = userSettings.export || {};
+  setSelectValue('settings-export-format', ex.default_format || 'txt');
+  const inclSpeakers = document.getElementById('settings-include-speakers');
+  if (inclSpeakers) inclSpeakers.checked = ex.include_speaker_names !== false;
+  const inclTs = document.getElementById('settings-include-timestamps');
+  if (inclTs) inclTs.checked = ex.include_timestamps !== false;
+
+  // AI
+  const ai = userSettings.ai || {};
+  setSelectValue('settings-chat-model', ai.chat_model || 'gpt-5-mini');
+  setSelectValue('settings-max-history', ai.max_chat_history || 10);
+
+  // Notifications
+  const notif = userSettings.notifications || {};
+  const threshold = document.getElementById('settings-cost-threshold');
+  if (threshold) threshold.value = notif.cost_alert_threshold || '';
+
   switchView('view-settings');
+}
+
+async function saveAutoSettings(section) {
+  let data = {};
+  if (section === 'transcription') {
+    data = {
+      default_language: document.getElementById('settings-language')?.value || 'auto',
+      auto_summary: document.getElementById('settings-auto-summary')?.checked ?? true,
+      auto_chapters: document.getElementById('settings-auto-chapters')?.checked ?? true,
+    };
+  } else if (section === 'display') {
+    data = {
+      default_playback_speed: parseFloat(document.getElementById('settings-playback-speed')?.value || '1'),
+      show_timestamps: document.getElementById('settings-show-timestamps')?.checked ?? true,
+      transcript_font_size: document.getElementById('settings-font-size')?.value || 'medium',
+    };
+  } else if (section === 'export') {
+    data = {
+      default_format: document.getElementById('settings-export-format')?.value || 'txt',
+      include_speaker_names: document.getElementById('settings-include-speakers')?.checked ?? true,
+      include_timestamps: document.getElementById('settings-include-timestamps')?.checked ?? true,
+    };
+  } else if (section === 'ai') {
+    data = {
+      chat_model: document.getElementById('settings-chat-model')?.value || 'gpt-5-mini',
+      max_chat_history: parseInt(document.getElementById('settings-max-history')?.value || '10', 10),
+    };
+  } else if (section === 'notifications') {
+    const val = document.getElementById('settings-cost-threshold')?.value;
+    data = {
+      cost_alert_threshold: val ? parseFloat(val) : null,
+    };
+  }
+  try {
+    const res = await fetch('/api/settings', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ [section]: data }),
+    });
+    if (!res.ok) throw new Error('Failed to save');
+    userSettings = await res.json();
+    toast('Settings saved', 'success');
+  } catch (e) {
+    toast('Failed to save settings', 'error');
+  }
 }
 
 async function saveSettings() {
@@ -1752,9 +1873,23 @@ async function saveFeatureSettings() {
     });
     if (!res.ok) throw new Error('Failed to save');
     userSettings = await res.json();
-    toast('Feature settings saved', 'success');
+    toast('Settings saved', 'success');
   } catch (e) {
-    toast('Failed to save feature settings', 'error');
+    toast('Failed to save settings', 'error');
+  }
+}
+
+async function checkCostAlert() {
+  const threshold = (userSettings.notifications || {}).cost_alert_threshold;
+  if (!threshold || threshold <= 0) return;
+  try {
+    const res = await fetch('/api/stats');
+    const stats = await res.json();
+    if (stats.month_cost >= threshold) {
+      toast(`Monthly cost ($${stats.month_cost.toFixed(2)}) has exceeded your alert threshold ($${threshold.toFixed(2)})`, 'error');
+    }
+  } catch (e) {
+    // Non-critical
   }
 }
 
@@ -1841,6 +1976,7 @@ async function toggleCostsSection(forceOpen) {
 function switchView(viewId) {
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
   document.getElementById(viewId).classList.add('active');
+  localStorage.setItem('lastView', viewId);
   window.scrollTo(0, 0);
 }
 
@@ -2086,10 +2222,12 @@ function setupAudioPlayer(transcript) {
   section.style.display = 'block';
   autoScrollEnabled = true;
 
-  // Reset playback speed
-  currentSpeedIndex = 0;
-  media.playbackRate = 1;
-  document.getElementById('speed-btn').textContent = '1x';
+  // Set playback speed from settings
+  const defaultSpeed = (userSettings.display || {}).default_playback_speed || 1;
+  const speedIdx = SPEED_OPTIONS.indexOf(defaultSpeed);
+  currentSpeedIndex = speedIdx >= 0 ? speedIdx : 0;
+  media.playbackRate = SPEED_OPTIONS[currentSpeedIndex];
+  document.getElementById('speed-btn').textContent = SPEED_OPTIONS[currentSpeedIndex] + 'x';
 
   // Update total time when metadata loads
   media.addEventListener('loadedmetadata', function onMeta() {

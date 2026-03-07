@@ -1148,6 +1148,10 @@ mark, .highlight {
   padding-bottom: 60px;
 }
 
+.utterances.font-small .u-text { font-size: 0.82rem; }
+.utterances.font-medium .u-text { font-size: 0.92rem; }
+.utterances.font-large .u-text { font-size: 1.05rem; }
+
 .utterance {
   position: relative;
   display: flex;
@@ -2081,6 +2085,25 @@ mark, .highlight {
 
 .settings-field input::placeholder {
   color: var(--text-muted);
+}
+
+.settings-field select {
+  width: 100%;
+  max-width: 360px;
+  padding: 8px 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: 0.9rem;
+  outline: none;
+  transition: border-color 0.15s;
+  box-sizing: border-box;
+  cursor: pointer;
+}
+
+.settings-field select:focus {
+  border-color: var(--accent);
 }
 
 .btn-save-settings {
