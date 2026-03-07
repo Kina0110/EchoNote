@@ -32,7 +32,7 @@ from transcription import (
 )
 from voiceprints import extract_speaker_embedding, match_speakers_to_voiceprints
 
-app = FastAPI(title="EchoNote")
+app = FastAPI(title="Transcribbly")
 
 
 def _check_prerequisites():
