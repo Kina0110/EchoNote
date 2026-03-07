@@ -2195,12 +2195,38 @@ mark, .highlight {
 .chat-panel.open {
   display: flex;
   flex-direction: column;
+  height: 400px;
+}
+
+.chat-resize-handle {
+  height: 6px;
+  cursor: ns-resize;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.chat-resize-handle::after {
+  content: '';
+  width: 36px;
+  height: 3px;
+  background: var(--text-muted);
+  border-radius: 2px;
+  opacity: 0.4;
+  transition: opacity 0.15s;
+}
+
+.chat-resize-handle:hover::after {
+  opacity: 0.8;
 }
 
 .chat-view {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  flex: 1;
 }
 
 .chat-panel-header {
@@ -2271,7 +2297,8 @@ mark, .highlight {
 
 .chat-thread-list {
   overflow-y: auto;
-  max-height: 320px;
+  flex: 1;
+  min-height: 0;
   padding: 8px;
 }
 
@@ -2333,7 +2360,7 @@ mark, .highlight {
 .chat-messages {
   flex: 1;
   overflow-y: auto;
-  max-height: 320px;
+  min-height: 0;
   padding: 12px 16px;
   display: flex;
   flex-direction: column;

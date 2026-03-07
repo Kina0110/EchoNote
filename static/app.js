@@ -1674,6 +1674,7 @@ function toggleChat() {
   chatOpen = !chatOpen;
   const panel = document.getElementById('chat-panel');
   const btn = document.getElementById('btn-chat-toggle');
+  if (!chatOpen) panel.style.height = '';
   panel.classList.toggle('open', chatOpen);
   if (btn) btn.classList.toggle('active', chatOpen);
   if (chatOpen && !activeChatId) {
@@ -1892,6 +1893,70 @@ async function checkCostAlert() {
     // Non-critical
   }
 }
+
+// === Chat Panel Resize ===
+(function setupChatResize() {
+  let dragging = false;
+  let startY = 0;
+  let startH = 0;
+  const MIN_H = 200;
+  const MAX_H_RATIO = 0.85;
+
+  function getHandle() { return document.getElementById('chat-resize-handle'); }
+  function getPanel() { return document.getElementById('chat-panel'); }
+
+  document.addEventListener('mousedown', (e) => {
+    if (e.target === getHandle() || e.target.closest('#chat-resize-handle')) {
+      e.preventDefault();
+      const panel = getPanel();
+      dragging = true;
+      startY = e.clientY;
+      startH = panel.offsetHeight;
+      document.body.style.userSelect = 'none';
+      document.body.style.cursor = 'ns-resize';
+    }
+  });
+
+  document.addEventListener('mousemove', (e) => {
+    if (!dragging) return;
+    const panel = getPanel();
+    const delta = startY - e.clientY;
+    const maxH = window.innerHeight * MAX_H_RATIO;
+    const newH = Math.min(maxH, Math.max(MIN_H, startH + delta));
+    panel.style.height = newH + 'px';
+  });
+
+  document.addEventListener('mouseup', () => {
+    if (dragging) {
+      dragging = false;
+      document.body.style.userSelect = '';
+      document.body.style.cursor = '';
+    }
+  });
+
+  // Touch support
+  document.addEventListener('touchstart', (e) => {
+    const touch = e.touches[0];
+    if (e.target === getHandle() || e.target.closest('#chat-resize-handle')) {
+      const panel = getPanel();
+      dragging = true;
+      startY = touch.clientY;
+      startH = panel.offsetHeight;
+    }
+  }, { passive: true });
+
+  document.addEventListener('touchmove', (e) => {
+    if (!dragging) return;
+    const touch = e.touches[0];
+    const panel = getPanel();
+    const delta = startY - touch.clientY;
+    const maxH = window.innerHeight * MAX_H_RATIO;
+    const newH = Math.min(maxH, Math.max(MIN_H, startH + delta));
+    panel.style.height = newH + 'px';
+  }, { passive: true });
+
+  document.addEventListener('touchend', () => { dragging = false; });
+})();
 
 // === Cost Tracker ===
 async function showCosts() {
