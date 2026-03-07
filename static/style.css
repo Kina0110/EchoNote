@@ -1148,6 +1148,10 @@ mark, .highlight {
   padding-bottom: 60px;
 }
 
+.utterances.font-small .u-text { font-size: 0.82rem; }
+.utterances.font-medium .u-text { font-size: 0.92rem; }
+.utterances.font-large .u-text { font-size: 1.05rem; }
+
 .utterance {
   position: relative;
   display: flex;
@@ -2083,6 +2087,25 @@ mark, .highlight {
   color: var(--text-muted);
 }
 
+.settings-field select {
+  width: 100%;
+  max-width: 360px;
+  padding: 8px 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: 0.9rem;
+  outline: none;
+  transition: border-color 0.15s;
+  box-sizing: border-box;
+  cursor: pointer;
+}
+
+.settings-field select:focus {
+  border-color: var(--accent);
+}
+
 .btn-save-settings {
   padding: 8px 20px;
   background: var(--accent);
@@ -2172,12 +2195,38 @@ mark, .highlight {
 .chat-panel.open {
   display: flex;
   flex-direction: column;
+  height: 400px;
+}
+
+.chat-resize-handle {
+  height: 6px;
+  cursor: ns-resize;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.chat-resize-handle::after {
+  content: '';
+  width: 36px;
+  height: 3px;
+  background: var(--text-muted);
+  border-radius: 2px;
+  opacity: 0.4;
+  transition: opacity 0.15s;
+}
+
+.chat-resize-handle:hover::after {
+  opacity: 0.8;
 }
 
 .chat-view {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  flex: 1;
 }
 
 .chat-panel-header {
@@ -2248,7 +2297,8 @@ mark, .highlight {
 
 .chat-thread-list {
   overflow-y: auto;
-  max-height: 320px;
+  flex: 1;
+  min-height: 0;
   padding: 8px;
 }
 
@@ -2310,7 +2360,7 @@ mark, .highlight {
 .chat-messages {
   flex: 1;
   overflow-y: auto;
-  max-height: 320px;
+  min-height: 0;
   padding: 12px 16px;
   display: flex;
   flex-direction: column;

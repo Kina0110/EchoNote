@@ -34,18 +34,28 @@ async def save_upload(file, uploads_dir: Path) -> tuple[Path, str]:
     return upload_path, ext
 
 
-async def transcribe_audio(wav_path: Path) -> dict:
+async def transcribe_audio(wav_path: Path, settings: dict | None = None) -> dict:
     """Send a WAV file to Deepgram and return the raw result dict."""
     dg_client = DeepgramClient(api_key=os.getenv("DEEPGRAM_API_KEY"))
     with open(wav_path, "rb") as f:
         audio_data = f.read()
 
-    response = await asyncio.to_thread(
-        dg_client.listen.v1.media.transcribe_file,
+    kwargs = dict(
         request=audio_data,
         model="nova-3",
         diarize=True, punctuate=True, paragraphs=True,
         utterances=True, smart_format=True,
+    )
+
+    if settings:
+        ts = settings.get("transcription", {})
+        lang = ts.get("default_language", "auto")
+        if lang and lang != "auto":
+            kwargs["language"] = lang
+
+    response = await asyncio.to_thread(
+        dg_client.listen.v1.media.transcribe_file,
+        **kwargs,
     )
     return response.model_dump()
 

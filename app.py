@@ -65,12 +65,13 @@ async def health():
 async def transcribe(file: UploadFile = File(...), keep_video: bool = Form(False)):
     _check_prerequisites()
 
+    settings = load_settings()
     upload_path, ext = await save_upload(file, UPLOADS_DIR)
     wav_path = upload_path.with_suffix(".wav")
 
     try:
         await asyncio.to_thread(extract_audio, upload_path, wav_path)
-        result = await transcribe_audio(wav_path)
+        result = await transcribe_audio(wav_path, settings=settings)
 
         duration = extract_duration(result)
         utterances, speakers = extract_utterances(result)
@@ -98,8 +99,11 @@ async def transcribe(file: UploadFile = File(...), keep_video: bool = Form(False
             shutil.copy2(str(upload_path), str(VIDEOS_DIR / video_filename))
             transcript["video_file"] = video_filename
 
-        await attach_summary(transcript)
-        await attach_chapters(transcript)
+        ts = settings.get("transcription", {})
+        if ts.get("auto_summary", True):
+            await attach_summary(transcript)
+        if ts.get("auto_chapters", True):
+            await attach_chapters(transcript)
         save_transcript(transcript)
         return transcript
 
@@ -116,6 +120,7 @@ async def transcribe(file: UploadFile = File(...), keep_video: bool = Form(False
 @app.post("/api/transcribe-multi")
 async def transcribe_multi(files: List[UploadFile] = File(...), keep_video: bool = Form(False)):
     _check_prerequisites()
+    settings = load_settings()
     if len(files) < 2:
         raise HTTPException(status_code=400, detail="Need at least 2 files to combine.")
 
@@ -142,7 +147,7 @@ async def transcribe_multi(files: List[UploadFile] = File(...), keep_video: bool
         # Concatenate all WAVs and transcribe
         combined_wav = UPLOADS_DIR / f"{uuid.uuid4().hex}_combined.wav"
         await asyncio.to_thread(concat_audio, wav_paths, combined_wav)
-        result = await transcribe_audio(combined_wav)
+        result = await transcribe_audio(combined_wav, settings=settings)
 
         duration = extract_duration(result)
         utterances, speakers = extract_utterances(result)
@@ -198,7 +203,9 @@ async def transcribe_multi(files: List[UploadFile] = File(...), keep_video: bool
                 shutil.copy2(str(video_uploads[0]), str(VIDEOS_DIR / video_filename))
                 transcript["video_file"] = video_filename
 
-        await attach_summary(transcript)
+        ts = settings.get("transcription", {})
+        if ts.get("auto_summary", True):
+            await attach_summary(transcript)
         save_transcript(transcript)
         return transcript
 
@@ -434,8 +441,16 @@ async def chat_about_transcript(transcript_id: str, request: Request):
     if not thread:
         raise HTTPException(status_code=404, detail="Chat thread not found")
 
-    # Build history from persisted messages
-    history = [{"role": m["role"], "content": m["content"]} for m in thread["messages"]]
+    # Build history from persisted messages, respecting max_chat_history
+    settings = load_settings()
+    ai_settings = settings.get("ai", {})
+    chat_model = ai_settings.get("chat_model", "gpt-5-mini")
+    max_history = ai_settings.get("max_chat_history", 10)
+
+    all_messages = thread["messages"]
+    if max_history and isinstance(max_history, int) and max_history > 0:
+        all_messages = all_messages[-(max_history * 2):]  # each exchange = 2 messages
+    history = [{"role": m["role"], "content": m["content"]} for m in all_messages]
 
     # Build enriched context with metadata
     context_parts = []
@@ -447,7 +462,7 @@ async def chat_about_transcript(transcript_id: str, request: Request):
     context_parts.append(transcript["full_text"])
     enriched_text = "\n\n".join(context_parts)
 
-    result = await asyncio.to_thread(chat_with_transcript, enriched_text, message, history)
+    result = await asyncio.to_thread(chat_with_transcript, enriched_text, message, history, model=chat_model)
     if not result:
         raise HTTPException(status_code=500, detail="Chat failed — check your OPENAI_API_KEY")
 
@@ -581,6 +596,11 @@ async def update_settings(request: Request):
         features = settings.get("features", {})
         features.update(body["features"])
         settings["features"] = features
+    for section in ("transcription", "display", "export", "ai", "notifications"):
+        if section in body:
+            existing = settings.get(section, {})
+            existing.update(body[section])
+            settings[section] = existing
     save_settings(settings)
     return settings
 
