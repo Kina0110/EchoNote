@@ -43,6 +43,22 @@ const SPEAKER_COLORS = [
   '#ff7b72', '#79c0ff', '#ffa657', '#a5d6ff',
 ];
 
+// === Theme ===
+function applyTheme(theme) {
+  if (theme === 'system') {
+    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    document.documentElement.setAttribute('data-theme', prefersDark ? 'dark' : 'light');
+  } else {
+    document.documentElement.setAttribute('data-theme', theme || 'dark');
+  }
+}
+
+// Listen for system theme changes when set to 'system'
+window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+  const theme = (userSettings.display || {}).theme || 'dark';
+  if (theme === 'system') applyTheme('system');
+});
+
 // === Init ===
 document.addEventListener('DOMContentLoaded', () => {
   checkHealth();
@@ -1544,6 +1560,7 @@ async function loadSettings() {
   } catch (e) {
     userSettings = {};
   }
+  applyTheme((userSettings.display || {}).theme || 'dark');
 }
 
 function setSelectValue(id, value) {
@@ -1574,6 +1591,7 @@ async function showSettings() {
 
   // Display
   const ds = userSettings.display || {};
+  setSelectValue('settings-theme', ds.theme || 'dark');
   setSelectValue('settings-playback-speed', ds.default_playback_speed || 1);
   const showTs = document.getElementById('settings-show-timestamps');
   if (showTs) showTs.checked = ds.show_timestamps !== false;
@@ -1610,10 +1628,12 @@ async function saveAutoSettings(section) {
     };
   } else if (section === 'display') {
     data = {
+      theme: document.getElementById('settings-theme')?.value || 'dark',
       default_playback_speed: parseFloat(document.getElementById('settings-playback-speed')?.value || '1'),
       show_timestamps: document.getElementById('settings-show-timestamps')?.checked ?? true,
       transcript_font_size: document.getElementById('settings-font-size')?.value || 'medium',
     };
+    applyTheme(data.theme);
   } else if (section === 'export') {
     data = {
       default_format: document.getElementById('settings-export-format')?.value || 'txt',
@@ -2333,6 +2353,25 @@ function setupAudioPlayer(transcript) {
 
   barContainer.addEventListener('click', seekHandler);
 
+  // Mini progress bar seek
+  const miniBar = document.querySelector('.player-mini-progress');
+  if (miniBar) {
+    const miniSeek = (e) => {
+      const rect = miniBar.getBoundingClientRect();
+      const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+      const pct = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+      if (media.duration) {
+        media.currentTime = pct * media.duration;
+        updatePlayerUI();
+      }
+    };
+    miniBar.addEventListener('click', miniSeek);
+    let miniDragging = false;
+    miniBar.addEventListener('touchstart', (e) => { miniDragging = true; miniSeek(e); }, { passive: true });
+    document.addEventListener('touchmove', (e) => { if (miniDragging) miniSeek(e); }, { passive: true });
+    document.addEventListener('touchend', () => { miniDragging = false; });
+  }
+
   // Touch drag on seek bar
   let dragging = false;
   barContainer.addEventListener('touchstart', (e) => {
@@ -2475,6 +2514,21 @@ function updatePlayerUI() {
   const pct = (media.currentTime / media.duration) * 100;
   document.getElementById('player-bar-fill').style.width = pct + '%';
   document.getElementById('player-current').textContent = formatTimestamp(media.currentTime);
+  // Sync mini progress bar
+  const miniFill = document.getElementById('player-mini-progress-fill');
+  if (miniFill) miniFill.style.width = pct + '%';
+}
+
+let playerManualExpand = false;
+function togglePlayerCollapse() {
+  const section = document.getElementById('audio-player-section');
+  const isCollapsed = section.classList.contains('collapsed');
+  section.classList.toggle('collapsed');
+  // If user manually expands, prevent auto-collapse for a while
+  if (isCollapsed) {
+    playerManualExpand = true;
+    setTimeout(() => { playerManualExpand = false; }, 5000);
+  }
 }
 
 function highlightCurrentUtterance() {
@@ -2559,8 +2613,9 @@ function clearActiveUtterance() {
   if (prev) prev.classList.remove('active');
 }
 
-// Disable auto-scroll when user manually scrolls
+// Disable auto-scroll when user manually scrolls + auto-collapse player
 let scrollTimeout = null;
+let lastScrollY = 0;
 window.addEventListener('scroll', () => {
   // If media is playing, briefly disable auto-scroll on manual scroll
   const media = getMediaElement();
@@ -2570,6 +2625,18 @@ window.addEventListener('scroll', () => {
     scrollTimeout = setTimeout(() => {
       autoScrollEnabled = true;
     }, 3000);
+  }
+
+  // Auto-collapse/expand player on scroll
+  const section = document.getElementById('audio-player-section');
+  if (section && section.style.display !== 'none' && !playerManualExpand) {
+    const scrollY = window.scrollY;
+    if (scrollY > 150 && scrollY > lastScrollY) {
+      section.classList.add('collapsed');
+    } else if (scrollY < 80) {
+      section.classList.remove('collapsed');
+    }
+    lastScrollY = scrollY;
   }
 }, { passive: true });
 

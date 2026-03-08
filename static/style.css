@@ -5,7 +5,8 @@
   padding: 0;
 }
 
-:root {
+:root,
+[data-theme="dark"] {
   --bg: #0d1117;
   --bg-secondary: #161b22;
   --bg-tertiary: #21262d;
@@ -30,6 +31,31 @@
   --speaker-6: #79c0ff;
   --speaker-7: #ffa657;
   --speaker-8: #a5d6ff;
+}
+
+[data-theme="light"] {
+  --bg: #ffffff;
+  --bg-secondary: #f6f8fa;
+  --bg-tertiary: #e8ecf0;
+  --border: #d0d7de;
+  --text: #1f2328;
+  --text-secondary: #656d76;
+  --text-muted: #8b949e;
+  --accent: #0969da;
+  --accent-hover: #0550ae;
+  --success: #1a7f37;
+  --danger: #cf222e;
+  --warning: #9a6700;
+  --shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+
+  --speaker-1: #0969da;
+  --speaker-2: #bc4c00;
+  --speaker-3: #1a7f37;
+  --speaker-4: #8250df;
+  --speaker-5: #cf222e;
+  --speaker-6: #0550ae;
+  --speaker-7: #bf8700;
+  --speaker-8: #0969da;
 }
 
 html {
@@ -1055,9 +1081,123 @@ mark, .highlight {
   padding: 14px 16px;
   margin-top: 8px;
   position: sticky;
-  top: 57px;
-  z-index: 99;
+  top: 65px;
+  z-index: 100;
+  transition: padding 0.3s ease, border-color 0.3s ease;
 }
+
+.audio-player-section.collapsed {
+  padding: 0;
+  border-color: transparent;
+  background: var(--bg-secondary);
+  border-radius: 0;
+  margin-top: 0;
+  margin-left: -16px;
+  margin-right: -16px;
+  border-left: none;
+  border-right: none;
+  border-bottom: 1px solid var(--border);
+  top: 57px;
+}
+
+.audio-player-section.collapsed .video-player {
+  display: none !important;
+}
+
+.audio-player-section.collapsed .player-controls {
+  gap: 8px;
+  padding: 6px 12px;
+}
+
+.audio-player-section.collapsed .player-btn {
+  width: 28px;
+  height: 28px;
+}
+
+.audio-player-section.collapsed .player-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+.audio-player-section.collapsed .speed-btn {
+  font-size: 0.7rem;
+  padding: 2px 6px;
+  min-width: 32px;
+}
+
+.audio-player-section.collapsed .volume-btn {
+  width: 26px;
+  height: 26px;
+}
+
+.audio-player-section.collapsed .player-time {
+  font-size: 0.7rem;
+  min-width: 30px;
+}
+
+/* Mini progress bar on top when collapsed */
+.player-mini-progress {
+  display: none;
+  height: 4px;
+  background: var(--bg-tertiary);
+  width: 100%;
+  cursor: pointer;
+  transition: height 0.15s ease;
+}
+
+.player-mini-progress:hover {
+  height: 6px;
+}
+
+.player-mini-progress-fill {
+  height: 100%;
+  background: var(--accent);
+  width: 0%;
+  transition: width 0.1s linear;
+  box-shadow: 0 0 6px rgba(88, 166, 255, 0.5);
+}
+
+.audio-player-section.collapsed .player-mini-progress {
+  display: block;
+}
+
+.audio-player-section.collapsed .player-bar-container {
+  display: none;
+}
+
+/* Expand button */
+.player-collapse-btn {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  flex-shrink: 0;
+  transition: color 0.2s, background 0.2s, transform 0.3s;
+  padding: 0;
+  margin-left: auto;
+}
+
+.player-collapse-btn:hover {
+  color: var(--text);
+  background: var(--bg-tertiary);
+}
+
+.player-collapse-btn svg {
+  width: 14px;
+  height: 14px;
+  transition: transform 0.3s ease;
+}
+
+.audio-player-section.collapsed .player-collapse-btn svg {
+  transform: rotate(180deg);
+}
+
 .video-player {
   width: 100%;
   max-height: 360px;
@@ -1070,6 +1210,7 @@ mark, .highlight {
   display: flex;
   align-items: center;
   gap: 12px;
+  transition: gap 0.3s ease, padding 0.3s ease;
 }
 
 .player-btn {
@@ -1084,7 +1225,7 @@ mark, .highlight {
   justify-content: center;
   border-radius: 50%;
   flex-shrink: 0;
-  transition: background 0.15s;
+  transition: background 0.15s, width 0.3s, height 0.3s;
 }
 
 .player-btn:hover {
@@ -1094,6 +1235,7 @@ mark, .highlight {
 .player-btn svg {
   width: 18px;
   height: 18px;
+  transition: width 0.3s, height 0.3s;
 }
 
 .player-time {
@@ -1113,48 +1255,66 @@ mark, .highlight {
   border: none;
   color: var(--text-secondary);
   cursor: pointer;
-  width: 28px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 4px;
-  transition: color 0.15s;
+  border-radius: 6px;
+  transition: color 0.2s, background 0.2s;
   padding: 0;
 }
 
 .volume-btn svg {
-  width: 16px;
-  height: 16px;
+  width: 17px;
+  height: 17px;
 }
 
 .volume-btn:hover {
-  color: var(--text);
+  color: var(--accent);
+  background: rgba(88, 166, 255, 0.08);
 }
 
 .volume-slider-popup {
-  display: none;
   position: absolute;
-  bottom: 100%;
-  left: 50%;
-  transform: translateX(-50%);
+  top: calc(100% + 10px);
+  right: 0;
+  transform: scale(0.9);
+  opacity: 0;
+  pointer-events: none;
   background: var(--bg-secondary);
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 12px 8px;
-  margin-bottom: 6px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  border-radius: 12px;
+  padding: 16px 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(88, 166, 255, 0.06);
+  z-index: 100;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.volume-slider-popup::after {
+  content: '';
+  position: absolute;
+  top: -5px;
+  right: 12px;
+  transform: rotate(45deg);
+  width: 10px;
+  height: 10px;
+  background: var(--bg-secondary);
+  border-left: 1px solid var(--border);
+  border-top: 1px solid var(--border);
 }
 
 .volume-control.open .volume-slider-popup {
-  display: block;
+  opacity: 1;
+  transform: scale(1);
+  pointer-events: auto;
 }
 
 .volume-slider {
   writing-mode: vertical-lr;
   direction: rtl;
   width: 6px;
-  height: 80px;
+  height: 100px;
   accent-color: var(--accent);
   cursor: pointer;
   -webkit-appearance: none;
@@ -1170,13 +1330,19 @@ mark, .highlight {
 
 .volume-slider::-webkit-slider-thumb {
   -webkit-appearance: none;
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
   background: var(--accent);
   border-radius: 50%;
-  border: none;
+  border: 2px solid var(--bg-secondary);
   cursor: pointer;
-  margin-left: -4px;
+  margin-left: -5px;
+  box-shadow: 0 0 6px rgba(88, 166, 255, 0.4);
+  transition: box-shadow 0.2s;
+}
+
+.volume-slider::-webkit-slider-thumb:hover {
+  box-shadow: 0 0 10px rgba(88, 166, 255, 0.6);
 }
 
 .volume-slider::-moz-range-track {
@@ -1187,12 +1353,13 @@ mark, .highlight {
 }
 
 .volume-slider::-moz-range-thumb {
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
   background: var(--accent);
   border-radius: 50%;
-  border: none;
+  border: 2px solid var(--bg-secondary);
   cursor: pointer;
+  box-shadow: 0 0 6px rgba(88, 166, 255, 0.4);
 }
 
 .speed-btn {

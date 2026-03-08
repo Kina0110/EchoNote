@@ -175,6 +175,9 @@
 
     <!-- Media player -->
     <div id="audio-player-section" class="audio-player-section" style="display:none;">
+      <div class="player-mini-progress">
+        <div class="player-mini-progress-fill" id="player-mini-progress-fill"></div>
+      </div>
       <video id="video-player" class="video-player" preload="auto" playsinline style="display:none;"></video>
       <audio id="audio-player" preload="auto"></audio>
       <div class="player-controls">
@@ -199,6 +202,9 @@
           </div>
         </div>
         <button class="speed-btn" id="speed-btn" onclick="cycleSpeed()">1x</button>
+        <button class="player-collapse-btn" id="player-collapse-btn" onclick="togglePlayerCollapse()" title="Collapse player">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="18 15 12 9 6 15"/></svg>
+        </button>
       </div>
     </div>
 
@@ -420,6 +426,14 @@
       <div class="settings-section">
         <h3 class="settings-section-title">Display</h3>
         <p class="settings-section-desc">Customize how transcripts are displayed.</p>
+        <div class="settings-field">
+          <label for="settings-theme">Theme</label>
+          <select id="settings-theme" onchange="saveAutoSettings('display')">
+            <option value="dark">Dark</option>
+            <option value="light">Light</option>
+            <option value="system">System</option>
+          </select>
+        </div>
         <div class="settings-field">
           <label for="settings-playback-speed">Default Playback Speed</label>
           <select id="settings-playback-speed" onchange="saveAutoSettings('display')">
