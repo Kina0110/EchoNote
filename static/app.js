@@ -2639,12 +2639,11 @@ window.addEventListener('scroll', () => {
     }, 3000);
   }
 
-  // Auto-collapse/expand player on scroll
+  // Auto-collapse/expand player on scroll (desktop only)
   const section = document.getElementById('audio-player-section');
-  if (section && section.style.display !== 'none' && !playerManualExpand) {
+  if (section && section.style.display !== 'none' && !playerManualExpand && window.innerWidth > 600) {
     const scrollY = window.scrollY;
-    const collapseThreshold = window.innerWidth <= 600 ? 100 : 150;
-    if (scrollY > collapseThreshold && scrollY > lastScrollY) {
+    if (scrollY > 150 && scrollY > lastScrollY) {
       section.classList.add('collapsed');
     } else if (scrollY < 80) {
       section.classList.remove('collapsed');
