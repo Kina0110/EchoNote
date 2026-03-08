@@ -1081,7 +1081,7 @@ mark, .highlight {
   padding: 14px 16px;
   margin-top: 8px;
   position: sticky;
-  top: 65px;
+  top: 57px;
   z-index: 100;
   transition: padding 0.3s ease, border-color 0.3s ease;
 }
@@ -1097,7 +1097,6 @@ mark, .highlight {
   border-left: none;
   border-right: none;
   border-bottom: 1px solid var(--border);
-  top: 57px;
 }
 
 .audio-player-section.collapsed .video-player {
@@ -2883,6 +2882,18 @@ mark, .highlight {
   right: 0;
 }
 
+.comments-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  z-index: 199;
+}
+
+.comments-overlay.open {
+  display: block;
+}
+
 .comments-sidebar-header {
   display: flex;
   align-items: center;
@@ -3030,7 +3041,6 @@ mark, .highlight {
 
   /* Player mobile adjustments */
   .audio-player-section {
-    top: 52px;
     margin-left: -12px;
     margin-right: -12px;
     border-radius: 0;
@@ -3040,7 +3050,6 @@ mark, .highlight {
   }
 
   .audio-player-section.collapsed {
-    top: 52px;
     margin-left: -12px;
     margin-right: -12px;
   }

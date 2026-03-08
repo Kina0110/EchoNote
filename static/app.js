@@ -977,8 +977,10 @@ async function deleteComment(index, commentId) {
 function toggleCommentsSidebar() {
   commentsSidebarOpen = !commentsSidebarOpen;
   const sidebar = document.getElementById('comments-sidebar');
+  const overlay = document.getElementById('comments-overlay');
   const btn = document.getElementById('btn-comments-toggle');
   sidebar.classList.toggle('open', commentsSidebarOpen);
+  if (overlay) overlay.classList.toggle('open', commentsSidebarOpen);
   if (btn) btn.classList.toggle('active', commentsSidebarOpen);
   if (commentsSidebarOpen) renderCommentsSidebar();
 }
@@ -1967,13 +1969,14 @@ async function checkCostAlert() {
 
   document.addEventListener('touchmove', (e) => {
     if (!dragging) return;
+    e.preventDefault();
     const touch = e.touches[0];
     const panel = getPanel();
     const delta = startY - touch.clientY;
     const maxH = window.innerHeight * MAX_H_RATIO;
     const newH = Math.min(maxH, Math.max(MIN_H, startH + delta));
     panel.style.height = newH + 'px';
-  }, { passive: true });
+  }, { passive: false });
 
   document.addEventListener('touchend', () => { dragging = false; });
 })();
@@ -2305,7 +2308,14 @@ function setupAudioPlayer(transcript) {
 
   const media = getMediaElement();
   section.style.display = 'block';
+  section.classList.remove('collapsed');
   autoScrollEnabled = true;
+
+  // Position player below action bar
+  const actionBar = document.querySelector('.action-bar');
+  if (actionBar) {
+    section.style.top = actionBar.offsetHeight + 'px';
+  }
 
   // Set playback speed from settings
   const defaultSpeed = (userSettings.display || {}).default_playback_speed || 1;
@@ -2638,6 +2648,15 @@ window.addEventListener('scroll', () => {
       section.classList.remove('collapsed');
     }
     lastScrollY = scrollY;
+  }
+
+  // Dynamically position player below action bar
+  if (section && section.style.display !== 'none') {
+    const actionBar = document.querySelector('.action-bar');
+    if (actionBar) {
+      const abHeight = actionBar.offsetHeight;
+      section.style.top = abHeight + 'px';
+    }
   }
 }, { passive: true });
 
