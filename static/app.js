@@ -2631,7 +2631,8 @@ window.addEventListener('scroll', () => {
   const section = document.getElementById('audio-player-section');
   if (section && section.style.display !== 'none' && !playerManualExpand) {
     const scrollY = window.scrollY;
-    if (scrollY > 150 && scrollY > lastScrollY) {
+    const collapseThreshold = window.innerWidth <= 600 ? 100 : 150;
+    if (scrollY > collapseThreshold && scrollY > lastScrollY) {
       section.classList.add('collapsed');
     } else if (scrollY < 80) {
       section.classList.remove('collapsed');

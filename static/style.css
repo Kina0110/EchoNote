@@ -2997,6 +2997,7 @@ mark, .highlight {
 @media (max-width: 600px) {
   .view {
     padding: 12px;
+    padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
   }
 
   .upload-zone {
@@ -3007,8 +3008,8 @@ mark, .highlight {
     margin: 0 -12px;
     padding-left: 12px;
     padding-right: 12px;
-    padding-top: 20px;
-    top: 4px;
+    padding-top: calc(12px + env(safe-area-inset-top, 0px));
+    top: 0;
   }
 
   .action-buttons {
@@ -3022,9 +3023,70 @@ mark, .highlight {
     justify-content: center;
     padding: 10px 12px;
   }
-  
+
   .btn-secondary {
     padding: 8px 10px;
+  }
+
+  /* Player mobile adjustments */
+  .audio-player-section {
+    top: 52px;
+    margin-left: -12px;
+    margin-right: -12px;
+    border-radius: 0;
+    border-left: none;
+    border-right: none;
+    padding: 10px 12px;
+  }
+
+  .audio-player-section.collapsed {
+    top: 52px;
+    margin-left: -12px;
+    margin-right: -12px;
+  }
+
+  .audio-player-section.collapsed .player-controls {
+    padding: 5px 10px;
+  }
+
+  .player-controls {
+    gap: 8px;
+  }
+
+  .player-btn {
+    width: 32px;
+    height: 32px;
+  }
+
+  /* Volume popup positioning on mobile */
+  .volume-slider-popup {
+    right: auto;
+    left: 50%;
+    transform: translateX(-50%) scale(0.9);
+  }
+
+  .volume-control.open .volume-slider-popup {
+    transform: translateX(-50%) scale(1);
+  }
+
+  .volume-slider-popup::after {
+    right: auto;
+    left: 50%;
+    transform: translateX(-50%) rotate(45deg);
+  }
+
+  /* Chat panel: shorter on mobile */
+  .chat-panel.open {
+    height: 280px;
+    max-height: 50vh;
+  }
+
+  .chat-panel {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  .chat-resize-handle {
+    height: 10px;
   }
 
   .stats-cards {
@@ -3059,6 +3121,13 @@ mark, .highlight {
     justify-content: center;
   }
 
+  /* Export dropdown: prevent overflow */
+  .export-menu {
+    right: 0;
+    left: auto;
+    max-width: calc(100vw - 24px);
+  }
+
   .comments-sidebar {
     width: 100%;
     right: -100%;
@@ -3066,6 +3135,8 @@ mark, .highlight {
 
   .comment-input-popover {
     width: 240px;
+    right: 0;
+    left: auto;
   }
 
 }
