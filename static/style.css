@@ -619,7 +619,7 @@ mark, .highlight {
 .action-bar {
   position: sticky;
   top: 0;
-  z-index: 100;
+  z-index: 101;
   background: var(--bg);
   border-bottom: 1px solid var(--border);
   padding: 12px 0;
