@@ -1,7 +1,9 @@
 import asyncio
+import hashlib
 import json
 import os
 import re
+import secrets
 import shutil
 import uuid
 from datetime import datetime, timezone
@@ -10,9 +12,10 @@ from typing import List
 
 import aiofiles
 from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
-from starlette.responses import FileResponse
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import FileResponse, RedirectResponse
 
 from audio import concat_audio, concat_video, extract_audio, get_duration
 from config import (
@@ -34,6 +37,94 @@ from transcription import (
 from voiceprints import extract_speaker_embedding, match_speakers_to_voiceprints
 
 app = FastAPI(title="Transcribbly")
+
+# --- Auth ---
+APP_PASSWORD = os.getenv("APP_PASSWORD", "")
+AUTH_SESSIONS: set[str] = set()
+
+
+class AuthMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        # Skip auth if no password is set
+        if not APP_PASSWORD:
+            return await call_next(request)
+
+        path = request.url.path
+        # Allow login page and static assets needed for login
+        if path in ("/login", "/api/login"):
+            return await call_next(request)
+
+        token = request.cookies.get("session")
+        if token and token in AUTH_SESSIONS:
+            return await call_next(request)
+
+        # Redirect to login for pages, 401 for API
+        if path.startswith("/api/"):
+            return JSONResponse({"detail": "Unauthorized"}, status_code=401)
+        return RedirectResponse("/login")
+
+
+app.add_middleware(AuthMiddleware)
+
+
+@app.get("/login")
+async def login_page():
+    return HTMLResponse(LOGIN_HTML)
+
+
+@app.post("/api/login")
+async def login(request: Request):
+    body = await request.json()
+    password = body.get("password", "")
+    if password == APP_PASSWORD:
+        token = secrets.token_hex(32)
+        AUTH_SESSIONS.add(token)
+        response = JSONResponse({"ok": True})
+        response.set_cookie("session", token, httponly=True, max_age=60 * 60 * 24 * 30)
+        return response
+    raise HTTPException(status_code=403, detail="Wrong password")
+
+
+LOGIN_HTML = """<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Login — Transcribbly</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #0d1117; color: #e6edf3; display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+    .login-box { background: #161b22; border: 1px solid #30363d; border-radius: 12px; padding: 32px; width: 100%; max-width: 360px; }
+    h1 { font-size: 1.4rem; margin-bottom: 8px; }
+    p { color: #8b949e; font-size: 0.9rem; margin-bottom: 24px; }
+    input { width: 100%; padding: 12px; background: #0d1117; border: 1px solid #30363d; border-radius: 8px; color: #e6edf3; font-size: 1rem; margin-bottom: 16px; }
+    input:focus { outline: none; border-color: #58a6ff; }
+    button { width: 100%; padding: 12px; background: #58a6ff; color: #fff; border: none; border-radius: 8px; font-size: 1rem; font-weight: 600; cursor: pointer; }
+    button:hover { background: #79c0ff; }
+    .error { color: #f85149; font-size: 0.85rem; margin-bottom: 12px; display: none; }
+  </style>
+</head>
+<body>
+  <div class="login-box">
+    <h1>Transcribbly</h1>
+    <p>Enter the password to continue.</p>
+    <div class="error" id="error">Wrong password. Try again.</div>
+    <form onsubmit="doLogin(event)">
+      <input type="password" id="pw" placeholder="Password" autofocus>
+      <button type="submit">Log in</button>
+    </form>
+  </div>
+  <script>
+    async function doLogin(e) {
+      e.preventDefault();
+      const pw = document.getElementById('pw').value;
+      const res = await fetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: pw }) });
+      if (res.ok) { window.location.href = '/'; }
+      else { document.getElementById('error').style.display = 'block'; }
+    }
+  </script>
+</body>
+</html>"""
 
 
 def _check_prerequisites():
