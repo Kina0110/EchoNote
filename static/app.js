@@ -1030,6 +1030,8 @@ function renderCommentsSidebar() {
 }
 
 function jumpToComment(index) {
+  // Close comments sidebar
+  if (commentsSidebarOpen) toggleCommentsSidebar();
   const el = document.querySelector(`.utterance[data-index="${index}"]`);
   if (!el) return;
   if (el.style.display === 'none') {
