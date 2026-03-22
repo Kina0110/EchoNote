@@ -530,6 +530,21 @@ mark, .highlight {
   margin-bottom: 12px;
 }
 
+.date-separator {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 12px 4px 6px;
+  margin-top: 4px;
+}
+
+.date-separator:first-child {
+  margin-top: 0;
+  padding-top: 4px;
+}
+
 .transcript-card {
   background: var(--bg-secondary);
   border: 1px solid var(--border);
@@ -2444,16 +2459,25 @@ mark, .highlight {
   border: 1px solid var(--border);
   border-radius: var(--radius) var(--radius) 0 0;
   overflow: hidden;
-  position: sticky;
+  position: fixed;
   bottom: 0;
+  left: 0;
+  right: 0;
   z-index: 98;
   box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.3);
+  /* iOS safe area support */
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  /* Prevent touch scrolling issues on iOS */
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
 }
 
 .chat-panel.open {
   display: flex;
   flex-direction: column;
   height: 400px;
+  /* Ensure panel stays above content when fixed positioned */
+  max-height: 70vh;
 }
 
 .chat-resize-handle {
@@ -3086,12 +3110,14 @@ mark, .highlight {
 
   /* Chat panel: shorter on mobile */
   .chat-panel.open {
-    height: 280px;
-    max-height: 50vh;
+    height: 50vh;
+    max-height: 60vh;
   }
 
   .chat-panel {
-    padding-bottom: env(safe-area-inset-bottom, 0px);
+    /* Enhanced iOS safe area support */
+    padding-bottom: env(safe-area-inset-bottom, 20px);
+    padding-bottom: constant(safe-area-inset-bottom, 20px);
   }
 
   .chat-resize-handle {

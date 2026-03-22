@@ -6,7 +6,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>Transcribbly</title>
-  <link rel="stylesheet" href="/static/style.css?v=38">
+  <link rel="stylesheet" href="/static/style.css?v=39">
 </head>
 <body>
   <!-- Toast container -->
@@ -151,6 +151,7 @@
       </button>
       <div class="action-buttons">
         <button class="btn-secondary btn-with-icon" onclick="copyForChatGPT()"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>Copy</button>
+        <button class="btn-secondary btn-with-icon" onclick="copyTimeRange()"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h18"/><path d="M8 7l-5 5 5 5"/><path d="M16 7l5 5-5 5"/></svg>Copy Range</button>
         <div class="export-dropdown" id="export-dropdown">
           <button class="btn-secondary export-toggle-btn" onclick="toggleExportMenu()">Export</button>
           <div class="export-menu" id="export-menu">
@@ -325,8 +326,8 @@
           <div class="chat-empty">Ask a question about this transcript...</div>
         </div>
         <div class="chat-input-row">
-          <input type="text" id="chat-input" placeholder="Ask about this transcript..." onkeydown="if(event.key==='Enter') sendChatMessage()">
-          <button class="chat-send-btn" id="chat-send-btn" onclick="sendChatMessage()">
+          <input type="text" id="chat-input" placeholder="Ask about this transcript..." onkeydown="handleChatInputKeydown(event)">
+          <button class="chat-send-btn" id="chat-send-btn" onclick="sendChatMessage()" ontouchstart="this.style.opacity='0.7'" ontouchend="this.style.opacity='1'">
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
           </button>
         </div>
@@ -575,6 +576,6 @@
     </div>
   </div>
 
-  <script src="/static/app.js?v=41"></script>
+  <script src="/static/app.js?v=44"></script>
 </body>
 </html>

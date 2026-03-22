@@ -17,7 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import FileResponse, RedirectResponse
 
-from audio import concat_audio, concat_video, extract_audio, get_duration
+from audio import concat_audio, concat_video, extract_audio, get_duration, get_file_creation_date
 from config import (
     ALLOWED_EXTENSIONS, AUDIO_DIR, COST_PER_MINUTE, MAX_FILE_SIZE,
     STARTING_CREDIT, STATIC_DIR, TAG_COLORS, TRANSCRIPTS_DIR, UPLOADS_DIR,
@@ -161,6 +161,7 @@ async def transcribe(file: UploadFile = File(...), keep_video: bool = Form(False
     wav_path = upload_path.with_suffix(".wav")
 
     try:
+        file_date = await asyncio.to_thread(get_file_creation_date, upload_path)
         await asyncio.to_thread(extract_audio, upload_path, wav_path)
         result = await transcribe_audio(wav_path, settings=settings)
 
@@ -178,6 +179,7 @@ async def transcribe(file: UploadFile = File(...), keep_video: bool = Form(False
             "id": transcript_id,
             "filename": file.filename or "unknown",
             "created_at": datetime.now(timezone.utc).isoformat(),
+            "file_created_at": file_date,
             "duration_seconds": round(duration, 2),
             "speakers": speakers,
             "utterances": utterances,
@@ -222,8 +224,10 @@ async def transcribe_multi(files: List[UploadFile] = File(...), keep_video: bool
 
     try:
         # Save and extract audio from each file
+        file_dates = []
         for f in files:
             upload_path, ext = await save_upload(f, UPLOADS_DIR)
+            file_dates.append(await asyncio.to_thread(get_file_creation_date, upload_path))
             wav_path = upload_path.with_suffix(".wav")
             await asyncio.to_thread(extract_audio, upload_path, wav_path)
             upload_paths.append(upload_path)
@@ -275,6 +279,7 @@ async def transcribe_multi(files: List[UploadFile] = File(...), keep_video: bool
             "filename": " + ".join(filenames),
             "source_files": filenames,
             "created_at": datetime.now(timezone.utc).isoformat(),
+            "file_created_at": min((d for d in file_dates if d), default=None),
             "duration_seconds": round(duration, 2),
             "speakers": speakers,
             "utterances": utterances,
@@ -319,6 +324,7 @@ async def list_transcripts():
             "id": data["id"],
             "filename": data["filename"],
             "created_at": data["created_at"],
+            "file_created_at": data.get("file_created_at"),
             "duration_seconds": data.get("duration_seconds", 0),
             "num_speakers": len(data.get("speakers", {})),
             "summary": data.get("summary", ""),
@@ -326,7 +332,7 @@ async def list_transcripts():
         }
         for data in iter_transcripts()
     ]
-    transcripts.sort(key=lambda t: t["created_at"], reverse=True)
+    transcripts.sort(key=lambda t: t.get("file_created_at") or t["created_at"], reverse=True)
     return transcripts
 
 

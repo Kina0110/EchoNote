@@ -1,6 +1,14 @@
 # Changelog
 
-## 2026-03-07 (latest)
+## 2026-03-17 (latest)
+
+### File Metadata Ordering
+- Transcripts now sorted by the original file's creation date (from media metadata) instead of upload time
+- Uses ffprobe to extract creation_time from media files, falls back to filesystem birth time, then upload time
+- Both sidebar list and detail view show the original file date
+- Multi-file transcripts use the earliest file's creation date
+
+## 2026-03-07
 
 ### Expanded Settings
 - **Transcription**: Default language (14 languages), auto-summary toggle, auto-chapters toggle, speaker count hint

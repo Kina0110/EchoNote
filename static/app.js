@@ -5,6 +5,7 @@ let autoScrollEnabled = true;
 let globalSearchTimeout = null;
 let transcriptSearchMatches = [];
 let currentMatchIndex = -1;
+const PLAYBACK_POSITION_STORAGE_KEY = 'transcribblyPlaybackPositions';
 
 // Recording state
 let mediaRecorder = null;
@@ -42,6 +43,46 @@ const SPEAKER_COLORS = [
   '#58a6ff', '#f78166', '#7ee787', '#d2a8ff',
   '#ff7b72', '#79c0ff', '#ffa657', '#a5d6ff',
 ];
+
+function loadPlaybackPositions() {
+  try {
+    const raw = localStorage.getItem(PLAYBACK_POSITION_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function savePlaybackPositions(positions) {
+  localStorage.setItem(PLAYBACK_POSITION_STORAGE_KEY, JSON.stringify(positions));
+}
+
+function getSavedPlaybackPosition(transcriptId) {
+  const positions = loadPlaybackPositions();
+  const value = positions[transcriptId];
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : 0;
+}
+
+function savePlaybackPosition(transcriptId, currentTime, duration) {
+  if (!transcriptId || !Number.isFinite(currentTime) || currentTime < 0) return;
+  const positions = loadPlaybackPositions();
+  if (duration && duration > 0 && currentTime >= duration - 1) {
+    delete positions[transcriptId];
+  } else {
+    positions[transcriptId] = Math.floor(currentTime);
+  }
+  savePlaybackPositions(positions);
+}
+
+function clearPlaybackPosition(transcriptId) {
+  if (!transcriptId) return;
+  const positions = loadPlaybackPositions();
+  if (!(transcriptId in positions)) return;
+  delete positions[transcriptId];
+  savePlaybackPositions(positions);
+}
 
 // === Theme ===
 function applyTheme(theme) {
@@ -534,14 +575,35 @@ async function showTagDialog(transcriptId) {
 
 async function copyAllByTag() {
   if (!activeTagFilter) return;
+  // On iOS over HTTP, we can't copy after an async fetch (gesture lost).
+  // So we fetch first, then prompt a tap to copy.
   try {
     const res = await fetch(`/api/transcripts/copy-by-tag?tag=${encodeURIComponent(activeTagFilter)}`);
     const text = await res.text();
-    await copyToClipboard(text);
-    toast('All matching transcripts copied!', 'success');
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
+      toast('All matching transcripts copied!', 'success');
+    } else {
+      // Show a tap-to-copy toast for iOS HTTP
+      showTapToCopy(text, 'All matching transcripts copied!');
+    }
   } catch (e) {
     toast('Failed to copy: ' + e.message, 'error');
   }
+}
+
+function showTapToCopy(text, successMsg) {
+  const container = document.getElementById('toast-container');
+  const el = document.createElement('div');
+  el.className = 'toast';
+  el.textContent = 'Tap here to copy';
+  el.style.cursor = 'pointer';
+  el.onclick = () => {
+    try { copyToClipboard(text); toast(successMsg, 'success'); } catch(e) { toast('Failed to copy', 'error'); }
+    el.remove();
+  };
+  container.appendChild(el);
+  setTimeout(() => { if (el.parentNode) el.remove(); }, 5000);
 }
 
 function renderTranscriptTags() {
@@ -599,8 +661,32 @@ function renderTranscriptList() {
   }
 
   empty.style.display = 'none';
-  container.innerHTML = list.map(t => {
-    const date = new Date(t.created_at).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+
+  // Group transcripts by date label (Today, Yesterday, This Week, This Month, older months)
+  const now = new Date();
+  const todayStr = now.toDateString();
+  const yesterday = new Date(now); yesterday.setDate(yesterday.getDate() - 1);
+  const yesterdayStr = yesterday.toDateString();
+  const weekAgo = new Date(now); weekAgo.setDate(weekAgo.getDate() - 7);
+
+  let html = '';
+  let lastGroup = '';
+  for (const t of list) {
+    const d = new Date(t.file_created_at || t.created_at);
+    const ds = d.toDateString();
+    let group;
+    if (ds === todayStr) group = 'Today';
+    else if (ds === yesterdayStr) group = 'Yesterday';
+    else if (d >= weekAgo) group = 'This Week';
+    else if (d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear()) group = 'This Month';
+    else group = d.toLocaleDateString('en-US', { year: 'numeric', month: 'long' });
+
+    if (group !== lastGroup) {
+      html += `<div class="date-separator">${group}</div>`;
+      lastGroup = group;
+    }
+
+    const date = d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
     const dur = formatDuration(t.duration_seconds);
     const summaryHtml = t.summary ? `<div class="card-summary">${escapeHtml(t.summary)}</div>` : '';
 
@@ -613,7 +699,7 @@ function renderTranscriptList() {
     tagsHtml += `<span class="card-tag-chip" style="background:var(--bg-tertiary);color:var(--text-muted);border:1px dashed var(--border);" onclick="event.stopPropagation(); showTagDialog('${t.id}')">+</span>`;
     tagsHtml += `</div>`;
 
-    return `
+    html += `
       <div class="transcript-card" onclick="openTranscript('${t.id}')">
         <div class="card-info">
           <div class="card-filename">${escapeHtml(t.filename)}</div>
@@ -637,7 +723,8 @@ function renderTranscriptList() {
         </div>
       </div>
     `;
-  }).join('');
+  }
+  container.innerHTML = html;
 }
 
 async function openTranscript(id) {
@@ -689,7 +776,7 @@ function showTranscript(transcript) {
   currentTranscript = transcript;
 
   document.getElementById('t-filename').textContent = transcript.filename;
-  document.getElementById('t-date').textContent = new Date(transcript.created_at).toLocaleDateString('en-US', {
+  document.getElementById('t-date').textContent = new Date(transcript.file_created_at || transcript.created_at).toLocaleDateString('en-US', {
     year: 'numeric', month: 'long', day: 'numeric'
   });
   document.getElementById('t-duration').textContent = formatDuration(transcript.duration_seconds);
@@ -1434,38 +1521,99 @@ function copyToClipboard(text) {
     return navigator.clipboard.writeText(text);
   }
   // Fallback for iOS Safari over HTTP
-  // Use contentEditable div - more reliable on iOS than textarea
-  const el = document.createElement('div');
-  el.contentEditable = true;
-  el.textContent = text;
-  el.style.position = 'fixed';
-  el.style.top = '0';
-  el.style.left = '0';
-  el.style.width = '1px';
-  el.style.height = '1px';
-  el.style.overflow = 'hidden';
-  el.style.opacity = '0.01';
-  document.body.appendChild(el);
-  
-  const range = document.createRange();
-  range.selectNodeContents(el);
-  const selection = window.getSelection();
-  selection.removeAllRanges();
-  selection.addRange(range);
-  
-  document.execCommand('copy');
-  selection.removeAllRanges();
-  document.body.removeChild(el);
-  return Promise.resolve();
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.setAttribute('readonly', '');
+  ta.style.cssText = 'position:fixed;top:0;left:0;width:1px;height:1px;padding:0;border:none;outline:none;opacity:0.01;';
+  document.body.appendChild(ta);
+  ta.focus();
+  ta.setSelectionRange(0, text.length);
+  const ok = document.execCommand('copy');
+  document.body.removeChild(ta);
+  return ok ? Promise.resolve() : Promise.reject(new Error('Copy failed'));
 }
 
-async function copyForChatGPT() {
+function copyForChatGPT() {
   if (!currentTranscript) return;
+  const t = currentTranscript;
+  const speakers = t.speakers || {};
+  const speakerNames = [...new Set(Object.values(speakers))];
+  const dur = t.duration_seconds || 0;
+  const h = Math.floor(dur / 3600), m = Math.floor((dur % 3600) / 60), s = Math.floor(dur % 60);
+  let durStr = h > 0 ? `${h} hour${h!==1?'s':''}, ${m} minute${m!==1?'s':''}, ${s} second${s!==1?'s':''}` :
+               m > 0 ? `${m} minute${m!==1?'s':''}, ${s} second${s!==1?'s':''}` : `${s} second${s!==1?'s':''}`;
+  const date = new Date(t.file_created_at || t.created_at).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+  let lines = [`TRANSCRIPT: ${t.filename}`, `Duration: ${durStr}`, `Speakers: ${speakerNames.join(', ')}`, `Date: ${date}`, '', '---', ''];
+  for (const u of (t.utterances || [])) {
+    if (u.type === 'file-boundary') { lines.push(`\n--- ${u.filename} ---\n`); continue; }
+    const name = speakers[u.speaker] || u.speaker;
+    lines.push(`${name}: ${u.text}`);
+  }
+  const text = lines.join('\n');
   try {
-    const res = await fetch(`/api/transcripts/${currentTranscript.id}/copytext`);
-    const text = await res.text();
-    await copyToClipboard(text);
+    copyToClipboard(text);
     toast('Copied to clipboard!', 'success');
+  } catch (e) {
+    toast('Failed to copy: ' + e.message, 'error');
+  }
+}
+
+function parseTimestampToSeconds(input) {
+  const value = (input || '').trim();
+  if (!value) return null;
+  if (/^\d+(\.\d+)?$/.test(value)) return Number(value);
+  const parts = value.split(':').map((part) => part.trim());
+  if (parts.some((part) => part === '' || Number.isNaN(Number(part)))) return null;
+  if (parts.length === 2) {
+    const minutes = Number(parts[0]);
+    const seconds = Number(parts[1]);
+    return minutes * 60 + seconds;
+  }
+  if (parts.length === 3) {
+    const hours = Number(parts[0]);
+    const minutes = Number(parts[1]);
+    const seconds = Number(parts[2]);
+    return hours * 3600 + minutes * 60 + seconds;
+  }
+  return null;
+}
+
+async function copyTimeRange() {
+  if (!currentTranscript) return;
+  const media = getMediaElement();
+  const defaultStart = media && Number.isFinite(media.currentTime) ? formatTimestamp(media.currentTime) : '00:00';
+  const startInput = window.prompt('Copy from time (examples: 1:23, 01:23:45, or seconds):', defaultStart);
+  if (startInput === null) return;
+  const endInput = window.prompt('Copy to time:', '');
+  if (endInput === null) return;
+
+  const startSeconds = parseTimestampToSeconds(startInput);
+  const endSeconds = parseTimestampToSeconds(endInput);
+  if (startSeconds === null || endSeconds === null) {
+    toast('Invalid time format. Use mm:ss, hh:mm:ss, or seconds.', 'error');
+    return;
+  }
+  if (startSeconds < 0 || endSeconds <= startSeconds) {
+    toast('End time must be greater than start time.', 'error');
+    return;
+  }
+
+  const utterances = (currentTranscript.utterances || []).filter((u) =>
+    u.type !== 'file-boundary' && u.end > startSeconds && u.start < endSeconds
+  );
+  if (utterances.length === 0) {
+    toast('No transcript text found in that time range.', 'error');
+    return;
+  }
+
+  const lines = utterances.map((u) => {
+    const speakerName = currentTranscript.speakers[u.speaker] || u.speaker;
+    return `[${formatTimestamp(u.start)}] ${speakerName}: ${u.text}`;
+  });
+
+  try {
+    await copyToClipboard(lines.join('\n'));
+    toast(`Copied ${lines.length} line${lines.length !== 1 ? 's' : ''}`, 'success');
   } catch (e) {
     toast('Failed to copy: ' + e.message, 'error');
   }
@@ -1698,7 +1846,7 @@ function toggleChat() {
   chatOpen = !chatOpen;
   const panel = document.getElementById('chat-panel');
   const btn = document.getElementById('btn-chat-toggle');
-  if (!chatOpen) panel.style.height = '';
+  if (!chatOpen) { panel.style.height = ''; panel.style.bottom = ''; }
   panel.classList.toggle('open', chatOpen);
   if (btn) btn.classList.toggle('active', chatOpen);
   if (chatOpen && !activeChatId) {
@@ -1762,8 +1910,18 @@ async function selectChatThread(chatId) {
     document.getElementById('chat-thread-title').textContent = thread.title;
 
     renderChatMessages(thread.messages);
-    setTimeout(() => document.getElementById('chat-input')?.focus(), 100);
+    // Delay focus on iOS to allow UI to settle
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+    const focusDelay = isIOS ? 300 : 100;
+    setTimeout(() => {
+      const input = document.getElementById('chat-input');
+      if (input && !isIOS) {
+        // Only auto-focus on non-iOS to avoid keyboard popping up unexpectedly
+        input.focus();
+      }
+    }, focusDelay);
   } catch (e) {
+    console.error('[Chat] Failed to load chat:', e);
     toast('Failed to load chat', 'error');
   }
 }
@@ -1828,10 +1986,25 @@ async function copyChatMsg(btn) {
   }
 }
 
+function handleChatInputKeydown(event) {
+  // iOS Safari sometimes sends keyCode 13 instead of key='Enter'
+  const isEnter = event.key === 'Enter' || event.keyCode === 13;
+  if (isEnter) {
+    event.preventDefault();
+    // Blur to hide keyboard on iOS
+    event.target.blur();
+    sendChatMessage();
+  }
+}
+
 async function sendChatMessage() {
   const input = document.getElementById('chat-input');
   const message = input?.value.trim();
-  if (!message || !currentTranscript || !activeChatId) return;
+  console.log('[Chat] Sending message:', message, 'activeChatId:', activeChatId, 'currentTranscript:', currentTranscript?.id);
+  if (!message || !currentTranscript || !activeChatId) {
+    console.log('[Chat] Aborting: missing required data');
+    return;
+  }
   input.value = '';
 
   // Optimistically show user message
@@ -1982,6 +2155,16 @@ async function checkCostAlert() {
 
   document.addEventListener('touchend', () => { dragging = false; });
 })();
+
+// Reposition chat panel when iOS keyboard appears/disappears
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', () => {
+    const panel = document.getElementById('chat-panel');
+    if (!panel || !panel.classList.contains('open')) return;
+    const keyboardHeight = window.innerHeight - window.visualViewport.height;
+    panel.style.bottom = keyboardHeight > 0 ? keyboardHeight + 'px' : '';
+  });
+}
 
 // === Cost Tracker ===
 async function showCosts() {
@@ -2332,6 +2515,17 @@ function setupAudioPlayer(transcript) {
     media.removeEventListener('loadedmetadata', onMeta);
   });
 
+  const savedTime = getSavedPlaybackPosition(transcript.id);
+  if (savedTime > 0) {
+    media.addEventListener('loadedmetadata', function onResumeMeta() {
+      if (media.duration && savedTime < media.duration - 1) {
+        media.currentTime = savedTime;
+        updatePlayerUI();
+      }
+      media.removeEventListener('loadedmetadata', onResumeMeta);
+    });
+  }
+
   // Play/pause state
   media.addEventListener('play', () => {
     document.getElementById('play-icon').style.display = 'none';
@@ -2346,11 +2540,20 @@ function setupAudioPlayer(transcript) {
   });
 
   media.addEventListener('ended', () => {
+    clearPlaybackPosition(transcript.id);
     document.getElementById('play-icon').style.display = '';
     document.getElementById('pause-icon').style.display = 'none';
     stopSyncLoop();
     clearActiveUtterance();
   });
+
+  if (media._resumeTimeUpdateHandler) {
+    media.removeEventListener('timeupdate', media._resumeTimeUpdateHandler);
+  }
+  media._resumeTimeUpdateHandler = () => {
+    savePlaybackPosition(transcript.id, media.currentTime, media.duration);
+  };
+  media.addEventListener('timeupdate', media._resumeTimeUpdateHandler);
 
   // Seek bar click/touch
   const seekHandler = (e) => {
@@ -2359,6 +2562,7 @@ function setupAudioPlayer(transcript) {
     const pct = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
     if (media.duration) {
       media.currentTime = pct * media.duration;
+      savePlaybackPosition(transcript.id, media.currentTime, media.duration);
       updatePlayerUI();
     }
   };
@@ -2374,6 +2578,7 @@ function setupAudioPlayer(transcript) {
       const pct = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
       if (media.duration) {
         media.currentTime = pct * media.duration;
+        savePlaybackPosition(transcript.id, media.currentTime, media.duration);
         updatePlayerUI();
       }
     };
@@ -2495,6 +2700,9 @@ function seekToUtterance(startTime) {
   }
 
   media.currentTime = startTime;
+  if (currentTranscript?.id) {
+    savePlaybackPosition(currentTranscript.id, media.currentTime, media.duration);
+  }
   autoScrollEnabled = true;
   if (media.paused) {
     const p = media.play();
