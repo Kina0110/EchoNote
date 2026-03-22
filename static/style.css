@@ -19,6 +19,7 @@
   --success: #3fb950;
   --danger: #f85149;
   --warning: #d29922;
+  --warning-rgb: 210, 169, 34;
   --radius: 12px;
   --radius-sm: 8px;
   --shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
@@ -74,14 +75,14 @@ body {
 }
 
 mark, .highlight {
-  background: rgba(210, 169, 34, 0.35);
+  background: rgba(var(--warning-rgb), 0.35);
   color: inherit;
   padding: 1px 2px;
   border-radius: 2px;
 }
 
 .highlight-current {
-  background: rgba(210, 169, 34, 0.7);
+  background: rgba(var(--warning-rgb), 0.7);
 }
 
 /* === Views === */
@@ -1648,7 +1649,7 @@ mark, .highlight {
 }
 
 .utterance.search-active {
-  background: rgba(210, 169, 34, 0.1);
+  background: rgba(var(--warning-rgb), 0.1);
   border-left: 3px solid var(--warning);
   padding-left: 1px;
 }
@@ -1692,7 +1693,7 @@ mark, .highlight {
 }
 
 .word-active {
-  background: rgba(210, 169, 34, 0.45);
+  background: rgba(var(--warning-rgb), 0.45);
   border-radius: 2px;
 }
 
@@ -1885,7 +1886,7 @@ mark, .highlight {
 .btn-bookmark-filter.active {
   color: var(--warning);
   border-color: var(--warning);
-  background: rgba(210, 169, 34, 0.1);
+  background: rgba(var(--warning-rgb), 0.1);
 }
 
 /* === Cost Tracker === */

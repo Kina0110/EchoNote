@@ -1,6 +1,14 @@
 from datetime import datetime
 
 
+def to_srt_time(seconds: float) -> str:
+    """Convert seconds to SRT timestamp format HH:MM:SS,mmm."""
+    h, rem = divmod(int(seconds), 3600)
+    m, s = divmod(rem, 60)
+    ms = int((seconds - int(seconds)) * 1000)
+    return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
+
+
 def format_timestamp(seconds: float) -> str:
     """Format seconds as [MM:SS] or [H:MM:SS]."""
     total = int(seconds)

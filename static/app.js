@@ -1,3 +1,6 @@
+// === Constants ===
+const DEEPGRAM_COST_PER_MINUTE = 0.0092; // Keep in sync with config.py COST_PER_MINUTE
+
 // === State ===
 let askPending = false;
 let askHistory = []; // [{role: 'user'|'assistant', content: str}]
@@ -307,7 +310,7 @@ async function _uploadAndTranscribe(formData, endpoint, { uploadLabel, processin
 
     progressText.textContent = 'Done!';
     const durMin = (result.duration_seconds || 0) / 60;
-    const estCost = (durMin * 0.0092).toFixed(2);
+    const estCost = (durMin * DEEPGRAM_COST_PER_MINUTE).toFixed(2);
     toast(`${doneLabel} ${Math.round(durMin)} min · ~$${estCost}`, 'success');
 
     return result;
@@ -2002,11 +2005,7 @@ function handleChatInputKeydown(event) {
 async function sendChatMessage() {
   const input = document.getElementById('chat-input');
   const message = input?.value.trim();
-  console.log('[Chat] Sending message:', message, 'activeChatId:', activeChatId, 'currentTranscript:', currentTranscript?.id);
-  if (!message || !currentTranscript || !activeChatId) {
-    console.log('[Chat] Aborting: missing required data');
-    return;
-  }
+  if (!message || !currentTranscript || !activeChatId) return;
   input.value = '';
 
   // Optimistically show user message

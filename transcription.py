@@ -1,13 +1,16 @@
 import asyncio
 import os
+import uuid
+from pathlib import Path
 
 import aiofiles
 from deepgram import DeepgramClient
 from fastapi import HTTPException
-from pathlib import Path
 
+from ai import generate_chapters, generate_summary
 from config import ALLOWED_EXTENSIONS, MAX_FILE_SIZE
 from helpers import merge_short_utterances
+from storage import load_settings
 
 
 async def save_upload(file, uploads_dir: Path) -> tuple[Path, str]:
@@ -19,7 +22,6 @@ async def save_upload(file, uploads_dir: Path) -> tuple[Path, str]:
             detail=f"Unsupported format '{ext}'. Supported: {', '.join(sorted(ALLOWED_EXTENSIONS))}",
         )
 
-    import uuid
     file_id = uuid.uuid4().hex
     upload_path = uploads_dir / f"{file_id}{ext}"
 
@@ -148,7 +150,6 @@ def extract_utterances(result: dict) -> tuple[list, dict]:
 
 async def attach_chapters(transcript: dict) -> None:
     """Generate and attach chapters to a transcript dict (in-place)."""
-    from ai import generate_chapters
     chapters = await asyncio.to_thread(
         generate_chapters, transcript["utterances"], transcript["speakers"]
     )
@@ -158,8 +159,6 @@ async def attach_chapters(transcript: dict) -> None:
 
 async def attach_summary(transcript: dict) -> None:
     """Generate and attach AI summary + action items to a transcript dict (in-place)."""
-    from ai import generate_summary
-    from storage import load_settings
     settings = load_settings()
     user_name = settings.get("profile", {}).get("name") or None
     summary_result = await asyncio.to_thread(generate_summary, transcript["full_text"], user_name)

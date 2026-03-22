@@ -7,6 +7,12 @@ from openai import OpenAI
 from config import AI_INPUT_COST_PER_TOKEN, AI_OUTPUT_COST_PER_TOKEN, MINI_INPUT_COST_PER_TOKEN, MINI_OUTPUT_COST_PER_TOKEN
 
 
+def _cost(input_tokens: int, output_tokens: int, model: str) -> float:
+    if model == "gpt-5":
+        return (input_tokens * AI_INPUT_COST_PER_TOKEN) + (output_tokens * AI_OUTPUT_COST_PER_TOKEN)
+    return (input_tokens * MINI_INPUT_COST_PER_TOKEN) + (output_tokens * MINI_OUTPUT_COST_PER_TOKEN)
+
+
 def generate_summary(full_text: str, user_name: str | None = None) -> dict | None:
     """Generate a summary + action items using GPT-5. Returns dict with summary, action_items, and usage, or None."""
     api_key = os.getenv("OPENAI_API_KEY")
@@ -53,7 +59,7 @@ def generate_summary(full_text: str, user_name: str | None = None) -> dict | Non
         usage = resp.usage
         input_tokens = usage.prompt_tokens if usage else 0
         output_tokens = usage.completion_tokens if usage else 0
-        cost = (input_tokens * AI_INPUT_COST_PER_TOKEN) + (output_tokens * AI_OUTPUT_COST_PER_TOKEN)
+        cost = _cost(input_tokens, output_tokens, "gpt-5")
 
         raw = (resp.choices[0].message.content or "").strip()
         # Strip markdown fences if present
@@ -125,10 +131,7 @@ def chat_with_transcript(full_text: str, message: str, history: list, model: str
         input_tokens = usage.prompt_tokens if usage else 0
         output_tokens = usage.completion_tokens if usage else 0
         # Cost rates depend on model
-        if model == "gpt-5":
-            cost = (input_tokens * AI_INPUT_COST_PER_TOKEN) + (output_tokens * AI_OUTPUT_COST_PER_TOKEN)
-        else:
-            cost = (input_tokens * MINI_INPUT_COST_PER_TOKEN) + (output_tokens * MINI_OUTPUT_COST_PER_TOKEN)
+        cost = _cost(input_tokens, output_tokens, model)
 
         reply = (resp.choices[0].message.content or "").strip()
         return {
@@ -235,7 +238,7 @@ def ask_across_transcripts(question: str, sources: list[dict], history: list | N
         usage = resp.usage
         input_tokens = usage.prompt_tokens if usage else 0
         output_tokens = usage.completion_tokens if usage else 0
-        cost = (input_tokens * MINI_INPUT_COST_PER_TOKEN) + (output_tokens * MINI_OUTPUT_COST_PER_TOKEN)
+        cost = _cost(input_tokens, output_tokens, "gpt-5-mini")
 
         return {
             "answer": (resp.choices[0].message.content or "").strip(),

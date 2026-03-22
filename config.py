@@ -41,10 +41,6 @@ MINI_INPUT_COST_PER_TOKEN = 0.25 / 1_000_000  # $0.25 per 1M input tokens (GPT-5
 MINI_OUTPUT_COST_PER_TOKEN = 2.00 / 1_000_000 # $2.00 per 1M output tokens (GPT-5 mini)
 EMBED_COST_PER_TOKEN = 0.02 / 1_000_000       # $0.02 per 1M tokens (text-embedding-3-small)
 
-SPEAKER_COLORS = [
-    "#58a6ff", "#f78166", "#7ee787", "#d2a8ff",
-    "#ff7b72", "#79c0ff", "#ffa657", "#a5d6ff",
-]
 
 TAG_COLORS = [
     "#e6b450", "#e06c9f", "#56d4bc", "#c49bff", "#f0883e",

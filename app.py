@@ -1,11 +1,13 @@
 import asyncio
 import hashlib
+import io
 import json
 import os
 import re
 import secrets
 import shutil
 import uuid
+import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import List
@@ -771,10 +773,6 @@ async def get_video(transcript_id: str):
 @app.get("/api/transcripts/{transcript_id}/download")
 async def download_zip(transcript_id: str):
     """Download transcript as a ZIP containing TXT, SRT, JSON, and audio."""
-    import io
-    import zipfile
-    from starlette.responses import Response
-    from helpers import format_timestamp
 
     transcript = load_transcript(transcript_id)
     base_name = Path(transcript["filename"]).stem
@@ -791,13 +789,6 @@ async def download_zip(transcript_id: str):
         headers={"Content-Disposition": f'attachment; filename="{base_name}.zip"'},
     )
 
-
-def _to_srt_time(seconds: float) -> str:
-    """Convert seconds to SRT timestamp format HH:MM:SS,mmm."""
-    h, rem = divmod(int(seconds), 3600)
-    m, s = divmod(rem, 60)
-    ms = int((seconds - int(seconds)) * 1000)
-    return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
 
 
 @app.get("/api/transcripts/{transcript_id}/copytext")
