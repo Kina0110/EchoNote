@@ -1,6 +1,19 @@
 # Changelog
 
-## 2026-03-17 (latest)
+## 2026-03-22 (latest)
+
+### iOS Mobile Fixes
+- **Copy buttons**: Fixed copy on iOS Safari over HTTP — switched fallback from contentEditable to textarea+setSelectionRange, which iOS respects more reliably
+- **Copy for ChatGPT**: Rebuilt to generate text client-side instead of fetching, so the copy happens synchronously within the tap gesture (iOS loses clipboard permission after async/await)
+- **Copy all by tag**: Shows a "Tap here to copy" prompt after fetching since fetch breaks the gesture chain — tapping the prompt does the actual copy
+- **Chat keyboard**: Fixed chat input and send button being covered by the iOS keyboard — uses `visualViewport` resize event to shift the chat panel up exactly as much as the keyboard height
+- **Chat panel reset**: Panel bottom position now resets properly when chat is closed
+
+### Transcript List Date Separators
+- Transcripts in the sidebar are now grouped by date with visual headers: Today, Yesterday, This Week, This Month, and older months (e.g. "February 2026")
+- Groups update dynamically based on the file's original creation date
+
+## 2026-03-17
 
 ### File Metadata Ordering
 - Transcripts now sorted by the original file's creation date (from media metadata) instead of upload time
