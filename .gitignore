@@ -7,11 +7,12 @@ venv/
 __pycache__/
 *.pyc
 
-# User data (transcripts, audio, voiceprints)
+# User data (transcripts, audio, voiceprints, embeddings)
 transcripts/
 audio/
 videos/
 uploads/
+embeddings/
 voiceprints.json
 tags.json
 settings.json
