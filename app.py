@@ -29,7 +29,8 @@ from storage import (
     iter_transcripts, load_settings, load_tags, load_transcript, load_voiceprints,
     save_settings, save_tags, save_transcript, save_voiceprints,
 )
-from ai import chat_with_transcript
+from ai import ask_across_transcripts, chat_with_transcript
+from embeddings import build_all_embeddings, embed_texts, embed_transcript, load_embeddings_index, semantic_search
 from transcription import (
     attach_chapters, attach_summary, cleanup_files, extract_duration, extract_utterances,
     handle_transcription_error, save_upload, transcribe_audio,
@@ -198,6 +199,7 @@ async def transcribe(file: UploadFile = File(...), keep_video: bool = Form(False
         if ts.get("auto_chapters", True):
             await attach_chapters(transcript)
         save_transcript(transcript)
+        asyncio.create_task(asyncio.to_thread(embed_transcript, transcript))
         return transcript
 
     except HTTPException:
@@ -303,6 +305,7 @@ async def transcribe_multi(files: List[UploadFile] = File(...), keep_video: bool
         if ts.get("auto_summary", True):
             await attach_summary(transcript)
         save_transcript(transcript)
+        asyncio.create_task(asyncio.to_thread(embed_transcript, transcript))
         return transcript
 
     except HTTPException:
@@ -877,6 +880,104 @@ async def search_transcripts(q: str = Query(..., min_length=1)):
             })
 
     return results
+
+
+# --- AI Ask ---
+
+def _keyword_search(query: str) -> list[dict]:
+    """Return transcripts matching query keywords. Extracted for reuse."""
+    q = query.lower()
+    results = []
+    for data in iter_transcripts(sort_key="mtime", reverse=True):
+        filename = data.get("filename", "")
+        summary = data.get("summary", "")
+        matched = q in filename.lower() or q in summary.lower()
+        if not matched:
+            for u in data.get("utterances", []):
+                if u.get("type") == "file-boundary":
+                    continue
+                if q in u.get("text", "").lower():
+                    matched = True
+                    break
+        if matched:
+            results.append({"id": data["id"], "filename": filename})
+    return results
+
+
+@app.post("/api/ask")
+async def ask_transcripts(request: Request):
+    body = await request.json()
+    question = (body.get("question") or "").strip()
+    max_sources = min(int(body.get("max_sources", 5)), 10)
+    if not question:
+        raise HTTPException(status_code=400, detail="question is required")
+    if not os.getenv("OPENAI_API_KEY"):
+        raise HTTPException(status_code=503, detail="OpenAI API key not configured")
+
+    # 1. Keyword search to identify relevant transcript IDs
+    keyword_hits = await asyncio.to_thread(_keyword_search, question)
+    keyword_ids = {r["id"] for r in keyword_hits}
+
+    # 2. Load transcript metadata for filenames
+    transcript_meta = {}
+    for data in iter_transcripts():
+        transcript_meta[data["id"]] = {"filename": data.get("filename", "Unknown")}
+
+    # 3. Embed query
+    query_vecs = await asyncio.to_thread(embed_texts, [question])
+    if not query_vecs:
+        raise HTTPException(status_code=503, detail="Embedding service unavailable")
+
+    # 4. Load index — fire background embedding for any missing transcripts
+    index = load_embeddings_index()
+    missing = [tid for tid in transcript_meta if tid not in index]
+    if missing:
+        for tid in missing:
+            try:
+                transcript = next(d for d in iter_transcripts() if d["id"] == tid)
+                asyncio.create_task(asyncio.to_thread(embed_transcript, transcript))
+            except StopIteration:
+                pass
+
+    # 5. Semantic search with keyword boost
+    sources = semantic_search(
+        query_vecs[0], index, transcript_meta,
+        keyword_ids=keyword_ids, top_k=max_sources,
+    )
+
+    if not sources:
+        return {
+            "answer": "I couldn't find relevant content in your transcripts for that question. Try rephrasing or check back once the search index finishes building.",
+            "sources": [],
+            "index_building": len(missing) > 0,
+        }
+
+    # 6. AI synthesis
+    result = await asyncio.to_thread(ask_across_transcripts, question, sources)
+    if not result:
+        raise HTTPException(status_code=503, detail="AI synthesis failed")
+
+    return {
+        "answer": result["answer"],
+        "sources": [
+            {
+                "transcript_id": s["transcript_id"],
+                "filename": s["filename"],
+                "chunk_text": s["chunk_text"],
+                "score": round(s["score"], 4),
+            }
+            for s in sources
+        ],
+        "index_building": len(missing) > 0,
+    }
+
+
+@app.post("/api/embeddings/build")
+async def rebuild_embeddings():
+    if not os.getenv("OPENAI_API_KEY"):
+        raise HTTPException(status_code=503, detail="OpenAI API key not configured")
+    result = await asyncio.to_thread(build_all_embeddings)
+    return result
 
 
 # --- Stats ---

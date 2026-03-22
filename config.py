@@ -16,10 +16,14 @@ TAGS_FILE = BASE_DIR / "tags.json"
 VOICEPRINTS_FILE = BASE_DIR / "voiceprints.json"
 SETTINGS_FILE = BASE_DIR / "settings.json"
 
+EMBEDDINGS_DIR = BASE_DIR / "embeddings"
+EMBEDDINGS_FILE = EMBEDDINGS_DIR / "index.json"
+
 UPLOADS_DIR.mkdir(exist_ok=True)
 TRANSCRIPTS_DIR.mkdir(exist_ok=True)
 AUDIO_DIR.mkdir(exist_ok=True)
 VIDEOS_DIR.mkdir(exist_ok=True)
+EMBEDDINGS_DIR.mkdir(exist_ok=True)
 
 ALLOWED_EXTENSIONS = {
     ".mp4", ".mov", ".avi", ".mkv", ".webm",
@@ -31,8 +35,11 @@ MAX_FILE_SIZE = 2 * 1024 * 1024 * 1024  # 2GB
 COST_PER_MINUTE = 0.0092  # Deepgram Nova-3 + diarization
 STARTING_CREDIT = 200.0
 
-AI_INPUT_COST_PER_TOKEN = 1.25 / 1_000_000   # $1.25 per 1M input tokens (GPT-5)
+AI_INPUT_COST_PER_TOKEN = 1.25 / 1_000_000    # $1.25 per 1M input tokens (GPT-5)
 AI_OUTPUT_COST_PER_TOKEN = 10.00 / 1_000_000  # $10.00 per 1M output tokens
+MINI_INPUT_COST_PER_TOKEN = 0.25 / 1_000_000  # $0.25 per 1M input tokens (GPT-5 mini)
+MINI_OUTPUT_COST_PER_TOKEN = 2.00 / 1_000_000 # $2.00 per 1M output tokens (GPT-5 mini)
+EMBED_COST_PER_TOKEN = 0.02 / 1_000_000       # $0.02 per 1M tokens (text-embedding-3-small)
 
 SPEAKER_COLORS = [
     "#58a6ff", "#f78166", "#7ee787", "#d2a8ff",

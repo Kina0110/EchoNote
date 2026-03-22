@@ -4,7 +4,7 @@ import re
 
 from openai import OpenAI
 
-from config import AI_INPUT_COST_PER_TOKEN, AI_OUTPUT_COST_PER_TOKEN
+from config import AI_INPUT_COST_PER_TOKEN, AI_OUTPUT_COST_PER_TOKEN, MINI_INPUT_COST_PER_TOKEN, MINI_OUTPUT_COST_PER_TOKEN
 
 
 def generate_summary(full_text: str, user_name: str | None = None) -> dict | None:
@@ -128,9 +128,7 @@ def chat_with_transcript(full_text: str, message: str, history: list, model: str
         if model == "gpt-5":
             cost = (input_tokens * AI_INPUT_COST_PER_TOKEN) + (output_tokens * AI_OUTPUT_COST_PER_TOKEN)
         else:
-            mini_input_cost = 0.25 / 1_000_000
-            mini_output_cost = 2.00 / 1_000_000
-            cost = (input_tokens * mini_input_cost) + (output_tokens * mini_output_cost)
+            cost = (input_tokens * MINI_INPUT_COST_PER_TOKEN) + (output_tokens * MINI_OUTPUT_COST_PER_TOKEN)
 
         reply = (resp.choices[0].message.content or "").strip()
         return {
@@ -200,3 +198,48 @@ def generate_chapters(utterances: list, speakers: dict) -> list | None:
         return result if len(result) >= 2 else None
     except Exception as e:
         raise RuntimeError(str(e)) from e
+
+
+def ask_across_transcripts(question: str, sources: list[dict]) -> dict | None:
+    """Synthesize an answer to question from retrieved transcript chunks. Uses GPT-5 mini."""
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key or not sources:
+        return None
+    try:
+        client = OpenAI(api_key=api_key)
+
+        excerpts = "\n\n".join(
+            f"--- {s['filename']} ---\n{s['chunk_text']}"
+            for s in sources
+        )
+
+        system_prompt = (
+            "You are a helpful assistant that answers questions by synthesizing information "
+            "across multiple meeting transcripts. Use only the provided transcript excerpts to answer. "
+            "Be concise and direct. If the answer spans multiple transcripts, mention which ones. "
+            "If the answer is not in the excerpts, say so clearly. Do not fabricate information."
+        )
+
+        user_message = f"Question: {question}\n\nTranscript excerpts:\n{excerpts}"
+
+        resp = client.chat.completions.create(
+            model="gpt-5-mini",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_message},
+            ],
+            max_completion_tokens=1000,
+        )
+        usage = resp.usage
+        input_tokens = usage.prompt_tokens if usage else 0
+        output_tokens = usage.completion_tokens if usage else 0
+        cost = (input_tokens * MINI_INPUT_COST_PER_TOKEN) + (output_tokens * MINI_OUTPUT_COST_PER_TOKEN)
+
+        return {
+            "answer": (resp.choices[0].message.content or "").strip(),
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "cost": round(cost, 6),
+        }
+    except Exception:
+        return None

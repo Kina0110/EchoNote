@@ -1,4 +1,5 @@
 // === State ===
+let askPending = false;
 let currentTranscript = null;
 let audioSyncRAF = null;
 let autoScrollEnabled = true;
@@ -2345,8 +2346,11 @@ function clearGlobalSearch() {
   document.getElementById('global-search').value = '';
   document.getElementById('global-search-clear').style.display = 'none';
   document.getElementById('search-results').style.display = 'none';
-  document.getElementById('upload-zone').style.display = '';
-  document.getElementById('transcript-list').style.display = '';
+  // Only restore home content if ask results aren't showing
+  if (document.getElementById('ask-results').style.display === 'none') {
+    document.getElementById('upload-zone').style.display = '';
+    document.getElementById('transcript-list').style.display = '';
+  }
 }
 
 function highlightText(text, query) {
@@ -2354,6 +2358,91 @@ function highlightText(text, query) {
   const queryEscaped = escapeHtml(query);
   const regex = new RegExp(`(${queryEscaped.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
   return escaped.replace(regex, '<mark>$1</mark>');
+}
+
+// === AI Ask ===
+
+function onAskKeydown(e) {
+  if (e.key === 'Enter') submitAsk();
+}
+
+async function submitAsk() {
+  if (askPending) return;
+  const input = document.getElementById('ask-input');
+  const question = input.value.trim();
+  if (!question) return;
+
+  const resultsEl = document.getElementById('ask-results');
+  const contentEl = document.getElementById('ask-answer-content');
+  const sourcesEl = document.getElementById('ask-sources-list');
+
+  askPending = true;
+  document.getElementById('ask-submit-btn').disabled = true;
+  resultsEl.style.display = 'block';
+  contentEl.innerHTML = '<div class="ask-loading"><div class="spinner"></div><span>Searching across your transcripts...</span></div>';
+  sourcesEl.innerHTML = '';
+
+  document.getElementById('upload-zone').style.display = 'none';
+  document.getElementById('transcript-list').style.display = 'none';
+  document.getElementById('search-results').style.display = 'none';
+
+  try {
+    const res = await fetch('/api/ask', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question, max_sources: 5 }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || 'Ask failed');
+    }
+    const data = await res.json();
+    renderAskResults(data, question);
+  } catch (e) {
+    contentEl.innerHTML = `<p class="empty-state">${escapeHtml(e.message || 'Failed to get an answer. Please try again.')}</p>`;
+  } finally {
+    askPending = false;
+    document.getElementById('ask-submit-btn').disabled = false;
+  }
+}
+
+function renderAskResults(data, question) {
+  const contentEl = document.getElementById('ask-answer-content');
+  const sourcesEl = document.getElementById('ask-sources-list');
+
+  const buildingNote = data.index_building
+    ? '<p class="ask-building-note">Search index is still building for some transcripts — results may improve after a moment.</p>'
+    : '';
+
+  contentEl.innerHTML = `
+    <div class="ask-question">${escapeHtml(question)}</div>
+    <div class="ask-answer">${escapeHtml(data.answer)}</div>
+    ${buildingNote}
+  `;
+
+  if (data.sources && data.sources.length > 0) {
+    sourcesEl.innerHTML = '<div class="ask-sources-title">Sources</div>' +
+      data.sources.map(s => `
+        <details class="ask-source-card">
+          <summary onclick="event.preventDefault(); openTranscript('${s.transcript_id}')">
+            <span class="ask-source-filename">${escapeHtml(s.filename)}</span>
+            <span class="ask-source-score">${Math.round(s.score * 100)}%</span>
+          </summary>
+          <div class="ask-source-chunk">${escapeHtml(s.chunk_text)}</div>
+        </details>
+      `).join('');
+  } else {
+    sourcesEl.innerHTML = '';
+  }
+}
+
+function clearAsk() {
+  document.getElementById('ask-input').value = '';
+  document.getElementById('ask-results').style.display = 'none';
+  document.getElementById('ask-answer-content').innerHTML = '';
+  document.getElementById('ask-sources-list').innerHTML = '';
+  document.getElementById('upload-zone').style.display = '';
+  document.getElementById('transcript-list').style.display = '';
 }
 
 // === In-Transcript Search ===

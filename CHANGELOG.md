@@ -2,6 +2,18 @@
 
 ## 2026-03-22 (latest)
 
+### Global AI Ask (Hybrid Search)
+- New "Ask" bar on the homepage — ask natural language questions across all your transcripts
+- Hybrid search: combines semantic embedding search (OpenAI text-embedding-3-small) with keyword search for best coverage
+- Semantic search finds conceptually related content even when exact words don't match (e.g. "hiring" matches chunks about "recruiting", "headcount", "onboarding")
+- Keyword hits get a relevance boost in the scoring, so exact matches always surface
+- Top matching chunks synthesized into a concise answer by GPT-5 mini (~$0.001 per query)
+- Source cards below the answer — click to open the transcript, expand to read the matched excerpt
+- Transcripts are embedded automatically after transcription (background, non-blocking)
+- Existing transcripts are indexed on first query, also in the background
+- Embeddings stored in `embeddings/index.json` keyed by transcript ID with MD5 hash for staleness detection
+- New backend: `embeddings.py` (chunking, cosine similarity, index I/O), `POST /api/ask`, `POST /api/embeddings/build`
+
 ### iOS Mobile Fixes
 - **Copy buttons**: Fixed copy on iOS Safari over HTTP — switched fallback from contentEditable to textarea+setSelectionRange, which iOS respects more reliably
 - **Copy for ChatGPT**: Rebuilt to generate text client-side instead of fetching, so the copy happens synchronously within the tap gesture (iOS loses clipboard permission after async/await)

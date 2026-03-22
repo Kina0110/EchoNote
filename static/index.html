@@ -6,7 +6,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>Transcribbly</title>
-  <link rel="stylesheet" href="/static/style.css?v=39">
+  <link rel="stylesheet" href="/static/style.css?v=40">
 </head>
 <body>
   <!-- Toast container -->
@@ -47,6 +47,22 @@
 
     <!-- Global search results -->
     <div id="search-results" class="search-results" style="display:none;"></div>
+
+    <!-- AI Ask bar -->
+    <div class="ask-bar">
+      <svg class="ask-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+        <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+      </svg>
+      <input type="text" id="ask-input" placeholder="Ask anything across all your transcripts..." onkeydown="onAskKeydown(event)">
+      <button class="ask-submit-btn" id="ask-submit-btn" onclick="submitAsk()">Ask</button>
+    </div>
+
+    <!-- AI Ask results -->
+    <div id="ask-results" class="ask-results" style="display:none;">
+      <div id="ask-answer-content"></div>
+      <div id="ask-sources-list"></div>
+      <button class="ask-clear-btn" onclick="clearAsk()">Clear</button>
+    </div>
 
     <!-- Tag filter bar -->
     <div id="tag-filter-bar" class="tag-filter-bar" style="display:none;">
@@ -576,6 +592,6 @@
     </div>
   </div>
 
-  <script src="/static/app.js?v=44"></script>
+  <script src="/static/app.js?v=45"></script>
 </body>
 </html>
