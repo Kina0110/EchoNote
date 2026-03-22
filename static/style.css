@@ -361,34 +361,61 @@ mark, .highlight {
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 20px;
+  padding: 16px;
   margin-bottom: 16px;
 }
 
-.ask-question {
-  font-size: 0.78rem;
+.ask-thread {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: 480px;
+  overflow-y: auto;
+  margin-bottom: 12px;
+}
+
+.ask-bubble {
+  max-width: 88%;
+  padding: 10px 14px;
+  border-radius: var(--radius);
+  font-size: 0.9rem;
+  line-height: 1.6;
+}
+
+.ask-bubble-user {
+  align-self: flex-end;
+  background: var(--accent);
+  color: #fff;
+  border-radius: var(--radius) var(--radius) 4px var(--radius);
+}
+
+.ask-bubble-ai {
+  align-self: flex-start;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius) var(--radius) var(--radius) 4px;
+}
+
+.ask-bubble-error {
   color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  font-weight: 600;
+  font-style: italic;
+}
+
+.ask-answer-text {
+  white-space: pre-wrap;
   margin-bottom: 10px;
 }
 
-.ask-answer {
-  font-size: 0.95rem;
-  line-height: 1.65;
-  color: var(--text);
-  white-space: pre-wrap;
-  margin-bottom: 16px;
+.ask-bubble-ai .ask-answer-text:last-child {
+  margin-bottom: 0;
 }
 
 .ask-loading {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   color: var(--text-muted);
-  font-size: 0.9rem;
-  padding: 8px 0;
+  font-size: 0.85rem;
 }
 
 .ask-building-note {

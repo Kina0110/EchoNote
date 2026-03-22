@@ -1,5 +1,6 @@
 // === State ===
 let askPending = false;
+let askHistory = []; // [{role: 'user'|'assistant', content: str}]
 let currentTranscript = null;
 let audioSyncRAF = null;
 let autoScrollEnabled = true;
@@ -2371,76 +2372,100 @@ async function submitAsk() {
   const input = document.getElementById('ask-input');
   const question = input.value.trim();
   if (!question) return;
+  input.value = '';
 
   const resultsEl = document.getElementById('ask-results');
-  const contentEl = document.getElementById('ask-answer-content');
-  const sourcesEl = document.getElementById('ask-sources-list');
+  const threadEl = document.getElementById('ask-thread');
 
   askPending = true;
   document.getElementById('ask-submit-btn').disabled = true;
   resultsEl.style.display = 'block';
-  contentEl.innerHTML = '<div class="ask-loading"><div class="spinner"></div><span>Searching across your transcripts...</span></div>';
-  sourcesEl.innerHTML = '';
 
   document.getElementById('upload-zone').style.display = 'none';
   document.getElementById('transcript-list').style.display = 'none';
   document.getElementById('search-results').style.display = 'none';
 
+  // Append user bubble immediately
+  appendAskBubble('user', question, null);
+
+  // Append loading bubble
+  const loadingId = 'ask-loading-' + Date.now();
+  appendAskBubble('loading', null, null, loadingId);
+  threadEl.scrollTop = threadEl.scrollHeight;
+
   try {
     const res = await fetch('/api/ask', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ question, max_sources: 5 }),
+      body: JSON.stringify({ question, history: askHistory, max_sources: 5 }),
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
       throw new Error(err.detail || 'Ask failed');
     }
     const data = await res.json();
-    renderAskResults(data, question);
+
+    // Remove loading bubble, append answer
+    document.getElementById(loadingId)?.remove();
+    appendAskBubble('assistant', data.answer, data.sources, null, data.index_building);
+
+    // Update history
+    askHistory.push({ role: 'user', content: question });
+    askHistory.push({ role: 'assistant', content: data.answer });
+
+    threadEl.scrollTop = threadEl.scrollHeight;
   } catch (e) {
-    contentEl.innerHTML = `<p class="empty-state">${escapeHtml(e.message || 'Failed to get an answer. Please try again.')}</p>`;
+    document.getElementById(loadingId)?.remove();
+    appendAskBubble('error', e.message || 'Failed to get an answer.', null);
   } finally {
     askPending = false;
     document.getElementById('ask-submit-btn').disabled = false;
   }
 }
 
-function renderAskResults(data, question) {
-  const contentEl = document.getElementById('ask-answer-content');
-  const sourcesEl = document.getElementById('ask-sources-list');
+function appendAskBubble(role, text, sources, id, indexBuilding) {
+  const threadEl = document.getElementById('ask-thread');
+  const el = document.createElement('div');
+  if (id) el.id = id;
 
-  const buildingNote = data.index_building
-    ? '<p class="ask-building-note">Search index is still building for some transcripts — results may improve after a moment.</p>'
-    : '';
-
-  contentEl.innerHTML = `
-    <div class="ask-question">${escapeHtml(question)}</div>
-    <div class="ask-answer">${escapeHtml(data.answer)}</div>
-    ${buildingNote}
-  `;
-
-  if (data.sources && data.sources.length > 0) {
-    sourcesEl.innerHTML = '<div class="ask-sources-title">Sources</div>' +
-      data.sources.map(s => `
-        <details class="ask-source-card">
-          <summary onclick="event.preventDefault(); openTranscript('${s.transcript_id}')">
-            <span class="ask-source-filename">${escapeHtml(s.filename)}</span>
-            <span class="ask-source-score">${Math.round(s.score * 100)}%</span>
-          </summary>
-          <div class="ask-source-chunk">${escapeHtml(s.chunk_text)}</div>
-        </details>
-      `).join('');
+  if (role === 'user') {
+    el.className = 'ask-bubble ask-bubble-user';
+    el.textContent = text;
+  } else if (role === 'loading') {
+    el.className = 'ask-bubble ask-bubble-ai';
+    el.innerHTML = '<div class="ask-loading"><div class="spinner"></div><span>Searching...</span></div>';
+  } else if (role === 'error') {
+    el.className = 'ask-bubble ask-bubble-ai ask-bubble-error';
+    el.textContent = text;
   } else {
-    sourcesEl.innerHTML = '';
+    el.className = 'ask-bubble ask-bubble-ai';
+    let html = `<div class="ask-answer-text">${escapeHtml(text)}</div>`;
+    if (indexBuilding) {
+      html += '<p class="ask-building-note">Index still building — results may improve shortly.</p>';
+    }
+    if (sources && sources.length > 0) {
+      html += '<div class="ask-sources-title">Sources</div>' +
+        sources.map(s => `
+          <details class="ask-source-card">
+            <summary onclick="event.preventDefault(); openTranscript('${s.transcript_id}')">
+              <span class="ask-source-filename">${escapeHtml(s.filename)}</span>
+              <span class="ask-source-score">${Math.round(s.score * 100)}%</span>
+            </summary>
+            <div class="ask-source-chunk">${escapeHtml(s.chunk_text)}</div>
+          </details>
+        `).join('');
+    }
+    el.innerHTML = html;
   }
+
+  threadEl.appendChild(el);
 }
 
 function clearAsk() {
   document.getElementById('ask-input').value = '';
   document.getElementById('ask-results').style.display = 'none';
-  document.getElementById('ask-answer-content').innerHTML = '';
-  document.getElementById('ask-sources-list').innerHTML = '';
+  document.getElementById('ask-thread').innerHTML = '';
+  askHistory = [];
   document.getElementById('upload-zone').style.display = '';
   document.getElementById('transcript-list').style.display = '';
 }

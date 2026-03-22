@@ -200,10 +200,10 @@ def generate_chapters(utterances: list, speakers: dict) -> list | None:
         raise RuntimeError(str(e)) from e
 
 
-def ask_across_transcripts(question: str, sources: list[dict]) -> dict | None:
+def ask_across_transcripts(question: str, sources: list[dict], history: list | None = None) -> dict | None:
     """Synthesize an answer to question from retrieved transcript chunks. Uses GPT-5 mini."""
     api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key or not sources:
+    if not api_key:
         return None
     try:
         client = OpenAI(api_key=api_key)
@@ -211,23 +211,25 @@ def ask_across_transcripts(question: str, sources: list[dict]) -> dict | None:
         excerpts = "\n\n".join(
             f"--- {s['filename']} ---\n{s['chunk_text']}"
             for s in sources
-        )
+        ) if sources else "(no relevant excerpts found)"
 
         system_prompt = (
             "You are a helpful assistant that answers questions by synthesizing information "
             "across multiple meeting transcripts. Use only the provided transcript excerpts to answer. "
             "Be concise and direct. If the answer spans multiple transcripts, mention which ones. "
-            "If the answer is not in the excerpts, say so clearly. Do not fabricate information."
+            "If the answer is not in the excerpts, say so clearly. Do not fabricate information.\n\n"
+            f"Transcript excerpts:\n{excerpts}"
         )
 
-        user_message = f"Question: {question}\n\nTranscript excerpts:\n{excerpts}"
+        messages = [{"role": "system", "content": system_prompt}]
+        # Include conversation history (last 10 turns to limit tokens)
+        for msg in (history or [])[-10:]:
+            messages.append({"role": msg["role"], "content": msg["content"]})
+        messages.append({"role": "user", "content": question})
 
         resp = client.chat.completions.create(
             model="gpt-5-mini",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_message},
-            ],
+            messages=messages,
             max_completion_tokens=1000,
         )
         usage = resp.usage

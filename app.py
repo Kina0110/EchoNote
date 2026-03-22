@@ -908,6 +908,7 @@ def _keyword_search(query: str) -> list[dict]:
 async def ask_transcripts(request: Request):
     body = await request.json()
     question = (body.get("question") or "").strip()
+    history = body.get("history") or []
     max_sources = min(int(body.get("max_sources", 5)), 10)
     if not question:
         raise HTTPException(status_code=400, detail="question is required")
@@ -953,7 +954,7 @@ async def ask_transcripts(request: Request):
         }
 
     # 6. AI synthesis
-    result = await asyncio.to_thread(ask_across_transcripts, question, sources)
+    result = await asyncio.to_thread(ask_across_transcripts, question, sources, history)
     if not result:
         raise HTTPException(status_code=503, detail="AI synthesis failed")
 
