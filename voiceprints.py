@@ -71,7 +71,7 @@ def match_speakers_to_voiceprints(audio_path: Path, utterances: list, speakers: 
     for similarity, speaker_key, name in candidates:
         if speaker_key in used_keys or name in used_names:
             continue
-        if similarity >= 0.75:
+        if similarity >= 0.85:
             updated[speaker_key] = name
             used_keys.add(speaker_key)
             used_names.add(name)

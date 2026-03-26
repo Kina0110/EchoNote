@@ -1,6 +1,12 @@
 # Changelog
 
-## 2026-03-22 (latest)
+## 2026-03-25 (latest)
+
+### Voiceprint Matching
+- Raised speaker matching threshold from 0.75 → 0.85 to reduce false matches against known voiceprints
+- Unknown speakers now stay as "Speaker N" unless the match is highly confident
+
+## 2026-03-22
 
 ### Global AI Ask (Hybrid Search)
 - New "Ask" bar on the homepage — ask natural language questions across all your transcripts
