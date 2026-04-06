@@ -1195,6 +1195,65 @@ function renameTranscript() {
   });
 }
 
+function changeTranscriptDate() {
+  if (!currentTranscript) return;
+  const el = document.getElementById('t-date');
+  const current = currentTranscript.file_created_at || currentTranscript.created_at;
+  const currentDate = new Date(current);
+
+  // Build YYYY-MM-DD for the date input
+  const pad = n => String(n).padStart(2, '0');
+  const localDate = `${currentDate.getFullYear()}-${pad(currentDate.getMonth() + 1)}-${pad(currentDate.getDate())}`;
+
+  const input = document.createElement('input');
+  input.type = 'date';
+  input.value = localDate;
+  input.className = 't-date-input';
+
+  el.textContent = '';
+  el.style.textDecoration = 'none';
+  el.appendChild(input);
+  input.focus();
+  input.showPicker?.();
+
+  async function save() {
+    if (!input.value) { restore(currentDate); return; }
+    const [y, m, d] = input.value.split('-').map(Number);
+    const newDate = new Date(current);
+    newDate.setFullYear(y, m - 1, d);
+    const iso = newDate.toISOString();
+
+    el.style.textDecoration = '';
+    el.textContent = newDate.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+
+    if (input.value !== localDate) {
+      try {
+        await fetch(`/api/transcripts/${currentTranscript.id}/date`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ date: iso })
+        });
+        currentTranscript.file_created_at = iso;
+        loadTranscripts();
+      } catch (e) {
+        toast('Failed to update date', 'error');
+        restore(currentDate);
+      }
+    }
+  }
+
+  function restore(d) {
+    el.style.textDecoration = '';
+    el.textContent = d.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+  }
+
+  input.addEventListener('change', () => { save(); });
+  input.addEventListener('blur', () => { if (document.activeElement !== input) save(); });
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') { restore(currentDate); }
+  });
+}
+
 function renameSpeaker(speakerKey, chipEl) {
   const currentName = currentTranscript.speakers[speakerKey];
   const label = chipEl.querySelector('.speaker-label');
@@ -1772,7 +1831,43 @@ async function showSettings() {
   const threshold = document.getElementById('settings-cost-threshold');
   if (threshold) threshold.value = notif.cost_alert_threshold || '';
 
+  loadVoiceprints();
   switchView('view-settings');
+}
+
+async function loadVoiceprints() {
+  const el = document.getElementById('voiceprints-list');
+  if (!el) return;
+  try {
+    const res = await fetch('/api/voiceprints');
+    const { voiceprints } = await res.json();
+    if (!voiceprints.length) {
+      el.innerHTML = '<span class="settings-section-desc">No voiceprints saved yet. They\'re created when you rename a speaker.</span>';
+      return;
+    }
+    el.innerHTML = voiceprints.map(name => `
+      <div class="voiceprint-row">
+        <span class="voiceprint-name">${escapeHtml(name)}</span>
+        <button class="btn-delete-voiceprint" onclick="deleteVoiceprint('${escapeAttr(name)}')" title="Delete voiceprint">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+          Delete
+        </button>
+      </div>
+    `).join('');
+  } catch {
+    el.innerHTML = '<span class="settings-section-desc">Failed to load voiceprints.</span>';
+  }
+}
+
+async function deleteVoiceprint(name) {
+  if (!confirm(`Delete voiceprint for "${name}"? They won't be auto-identified in future transcriptions.`)) return;
+  try {
+    await fetch(`/api/voiceprints/${encodeURIComponent(name)}`, { method: 'DELETE' });
+    toast(`Deleted voiceprint for ${name}`);
+    loadVoiceprints();
+  } catch {
+    toast('Failed to delete voiceprint', 'error');
+  }
 }
 
 async function saveAutoSettings(section) {

@@ -7,6 +7,10 @@ from scipy.spatial.distance import cosine
 
 from storage import load_voiceprints
 
+# Weight given to the existing voiceprint vs a new sample (0–1).
+# 0.7 = new samples nudge the profile gently; outliers barely move it.
+_BLEND_WEIGHT = 0.7
+
 # Lazy-load encoder on first use (model download ~50MB on first run)
 _voice_encoder = None
 
@@ -46,6 +50,26 @@ def extract_speaker_embedding(audio_path: Path, utterances: list, speaker_key: s
         return None
 
 
+def blend_embeddings(existing: list, new: list, weight: float = _BLEND_WEIGHT) -> list:
+    """Weighted blend: weight * existing + (1-weight) * new, then L2-normalize."""
+    a = np.array(existing)
+    b = np.array(new)
+    blended = weight * a + (1 - weight) * b
+    norm = np.linalg.norm(blended)
+    if norm > 0:
+        blended /= norm
+    return blended.tolist()
+
+
+def merge_speaker_embeddings(embeddings: list[list]) -> list:
+    """Average multiple embeddings (e.g. two speakers named the same), then L2-normalize."""
+    arr = np.mean([np.array(e) for e in embeddings], axis=0)
+    norm = np.linalg.norm(arr)
+    if norm > 0:
+        arr /= norm
+    return arr.tolist()
+
+
 def match_speakers_to_voiceprints(audio_path: Path, utterances: list, speakers: dict) -> dict:
     """Try to match diarized speakers to known voiceprints. Returns updated speakers dict."""
     voiceprints = load_voiceprints()
@@ -71,7 +95,7 @@ def match_speakers_to_voiceprints(audio_path: Path, utterances: list, speakers: 
     for similarity, speaker_key, name in candidates:
         if speaker_key in used_keys or name in used_names:
             continue
-        if similarity >= 0.85:
+        if similarity >= 0.90:
             updated[speaker_key] = name
             used_keys.add(speaker_key)
             used_names.add(name)

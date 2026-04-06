@@ -37,7 +37,7 @@ from transcription import (
     attach_chapters, attach_summary, cleanup_files, extract_duration, extract_utterances,
     handle_transcription_error, save_upload, transcribe_audio,
 )
-from voiceprints import extract_speaker_embedding, match_speakers_to_voiceprints
+from voiceprints import blend_embeddings, extract_speaker_embedding, match_speakers_to_voiceprints, merge_speaker_embeddings
 
 app = FastAPI(title="Transcribbly")
 
@@ -360,6 +360,22 @@ async def rename_transcript(transcript_id: str, request: Request):
     return {"filename": name}
 
 
+@app.patch("/api/transcripts/{transcript_id}/date")
+async def update_transcript_date(transcript_id: str, request: Request):
+    body = await request.json()
+    date_str = body.get("date", "").strip()
+    if not date_str:
+        raise HTTPException(status_code=400, detail="Date cannot be empty")
+    try:
+        datetime.fromisoformat(date_str)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format")
+    transcript = load_transcript(transcript_id)
+    transcript["file_created_at"] = date_str
+    save_transcript(transcript)
+    return {"file_created_at": date_str}
+
+
 @app.delete("/api/transcripts/{transcript_id}")
 async def delete_transcript(transcript_id: str):
     path = TRANSCRIPTS_DIR / f"{transcript_id}.json"
@@ -621,6 +637,8 @@ async def rename_speakers(transcript_id: str, request: Request):
             async def _save_voiceprints():
                 try:
                     voiceprints = load_voiceprints()
+                    # Collect new embeddings grouped by name (multiple speakers may share a name)
+                    new_by_name: dict[str, list] = {}
                     for orig, name in body.items():
                         if re.match(r"^Speaker \d+$", name):
                             continue
@@ -628,7 +646,15 @@ async def rename_speakers(transcript_id: str, request: Request):
                             extract_speaker_embedding, audio_path, transcript["utterances"], orig
                         )
                         if embedding:
-                            voiceprints[name] = embedding
+                            new_by_name.setdefault(name, []).append(embedding)
+                    for name, embeddings in new_by_name.items():
+                        # If multiple speakers got the same name, average them first
+                        new_emb = merge_speaker_embeddings(embeddings) if len(embeddings) > 1 else embeddings[0]
+                        if name in voiceprints:
+                            # Blend with existing: favors existing to resist outliers
+                            voiceprints[name] = blend_embeddings(voiceprints[name], new_emb)
+                        else:
+                            voiceprints[name] = new_emb
                     save_voiceprints(voiceprints)
                 except Exception:
                     pass
@@ -678,6 +704,21 @@ async def update_tags(transcript_id: str, request: Request):
 
 
 # --- Settings ---
+
+@app.get("/api/voiceprints")
+async def get_voiceprints():
+    return {"voiceprints": list(load_voiceprints().keys())}
+
+
+@app.delete("/api/voiceprints/{name}")
+async def delete_voiceprint(name: str):
+    voiceprints = load_voiceprints()
+    if name not in voiceprints:
+        raise HTTPException(status_code=404, detail="Voiceprint not found")
+    del voiceprints[name]
+    save_voiceprints(voiceprints)
+    return {"deleted": name}
+
 
 @app.get("/api/settings")
 async def get_settings():

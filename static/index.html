@@ -6,7 +6,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>Transcribbly</title>
-  <link rel="stylesheet" href="/static/style.css?v=42">
+  <link rel="stylesheet" href="/static/style.css?v=44">
 </head>
 <body>
   <!-- Toast container -->
@@ -235,7 +235,7 @@
         </button>
       </div>
       <div class="t-meta">
-        <span id="t-date"></span>
+        <span id="t-date" onclick="changeTranscriptDate()" title="Click to change date" style="cursor:pointer;text-decoration:underline dotted;text-underline-offset:3px;"></span>
         <span class="meta-sep">&middot;</span>
         <span id="t-duration"></span>
       </div>
@@ -523,6 +523,14 @@
       </div>
 
       <div class="settings-section">
+        <h3 class="settings-section-title">Voiceprints</h3>
+        <p class="settings-section-desc">Saved voice profiles used to automatically identify speakers. Delete any that are causing wrong matches.</p>
+        <div id="voiceprints-list" class="voiceprints-list">
+          <span class="settings-section-desc">Loading...</span>
+        </div>
+      </div>
+
+      <div class="settings-section">
         <h3 class="settings-section-title">Notifications</h3>
         <p class="settings-section-desc">Set up cost alerts and notifications.</p>
         <div class="settings-field">
@@ -593,6 +601,6 @@
     </div>
   </div>
 
-  <script src="/static/app.js?v=48"></script>
+  <script src="/static/app.js?v=50"></script>
 </body>
 </html>

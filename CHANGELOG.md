@@ -1,6 +1,20 @@
 # Changelog
 
-## 2026-03-25 (latest)
+## 2026-04-05 (latest)
+
+### Voiceprint Management & Smarter Merging
+- Settings > Voiceprints: view and delete any saved voice profile
+- Raised matching threshold to 0.90 — only near-certain matches are applied
+- Same name assigned to multiple speakers in one transcript: embeddings are averaged for a better combined profile
+- Existing voiceprint + new sample: blended 70/30 (existing/new) so outlier recordings don't corrupt the profile
+- New API endpoints: GET /api/voiceprints, DELETE /api/voiceprints/:name
+
+### Editable Transcript Date
+- Click the date on any transcript to change it via a date picker
+- New date updates the sort order in the sidebar immediately
+- New API endpoint: PATCH /api/transcripts/:id/date
+
+## 2026-03-25
 
 ### Voiceprint Matching
 - Raised speaker matching threshold from 0.75 → 0.85 to reduce false matches against known voiceprints

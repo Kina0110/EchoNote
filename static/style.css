@@ -1038,6 +1038,17 @@ mark, .highlight {
   color: var(--accent);
 }
 
+.t-date-input {
+  font-size: 0.85rem;
+  background: var(--bg-tertiary);
+  color: var(--text);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  padding: 2px 6px;
+  outline: none;
+  color-scheme: dark;
+}
+
 .t-filename-input {
   font-size: 1.2rem;
   font-weight: 700;
@@ -2521,6 +2532,45 @@ mark, .highlight {
   color: var(--text-secondary);
   margin-bottom: 16px;
   line-height: 1.4;
+}
+
+.voiceprints-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.voiceprint-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+}
+
+.voiceprint-name {
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+.btn-delete-voiceprint {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 3px 8px;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.btn-delete-voiceprint:hover {
+  color: var(--danger);
+  border-color: var(--danger);
 }
 
 .settings-field {
