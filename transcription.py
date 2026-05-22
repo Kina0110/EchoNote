@@ -38,7 +38,10 @@ async def save_upload(file, uploads_dir: Path) -> tuple[Path, str]:
 
 async def transcribe_audio(wav_path: Path, settings: dict | None = None) -> dict:
     """Send a WAV file to Deepgram and return the raw result dict."""
-    dg_client = DeepgramClient(api_key=os.getenv("DEEPGRAM_API_KEY"))
+    dg_client = DeepgramClient(
+        api_key=os.getenv("DEEPGRAM_API_KEY"),
+        timeout=600,  # 10 min timeout for long files
+    )
     with open(wav_path, "rb") as f:
         audio_data = f.read()
 

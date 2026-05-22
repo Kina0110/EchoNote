@@ -1242,6 +1242,71 @@ mark, .highlight {
 }
 
 /* === Speaker Legend === */
+.speaker-confirm-banner {
+  background: rgba(var(--warning-rgb), 0.1);
+  border: 1px solid rgba(var(--warning-rgb), 0.35);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  margin-bottom: 12px;
+  font-size: 0.85rem;
+}
+
+.speaker-confirm-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  color: rgba(var(--warning-rgb), 1);
+  margin-bottom: 10px;
+}
+
+.speaker-confirm-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.speaker-confirm-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.speaker-confirm-label {
+  color: var(--text);
+}
+
+.speaker-confirm-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.btn-confirm-yes, .btn-confirm-no {
+  padding: 4px 12px;
+  border-radius: var(--radius-sm);
+  border: none;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.btn-confirm-yes {
+  background: #2a9d5c;
+  color: #fff;
+}
+
+.btn-confirm-no {
+  background: var(--danger);
+  color: #fff;
+}
+
+.btn-confirm-yes:hover, .btn-confirm-no:hover {
+  opacity: 0.85;
+}
+
 .speaker-section {
   display: flex;
   align-items: center;

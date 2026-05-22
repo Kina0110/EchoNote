@@ -70,13 +70,15 @@ def merge_speaker_embeddings(embeddings: list[list]) -> list:
     return arr.tolist()
 
 
-def match_speakers_to_voiceprints(audio_path: Path, utterances: list, speakers: dict) -> dict:
-    """Try to match diarized speakers to known voiceprints. Returns updated speakers dict."""
+def match_speakers_to_voiceprints(audio_path: Path, utterances: list, speakers: dict) -> tuple[dict, dict]:
+    """Try to match diarized speakers to known voiceprints.
+    Returns (updated_speakers, matched_map) where matched_map only contains auto-matched entries."""
     voiceprints = load_voiceprints()
     if not voiceprints:
-        return speakers
+        return dict(speakers), {}
 
     updated = dict(speakers)
+    matched = {}
 
     # Score each speaker against all voiceprints
     candidates = []
@@ -97,7 +99,8 @@ def match_speakers_to_voiceprints(audio_path: Path, utterances: list, speakers: 
             continue
         if similarity >= 0.90:
             updated[speaker_key] = name
+            matched[speaker_key] = name
             used_keys.add(speaker_key)
             used_names.add(name)
 
-    return updated
+    return updated, matched

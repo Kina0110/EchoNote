@@ -143,7 +143,7 @@ async def _match_voiceprints(audio_path, utterances, speakers):
             match_speakers_to_voiceprints, audio_path, utterances, speakers
         )
     except Exception:
-        return speakers
+        return dict(speakers), {}
 
 
 # --- Health ---
@@ -176,7 +176,7 @@ async def transcribe(file: UploadFile = File(...), keep_video: bool = Form(False
         audio_dest = AUDIO_DIR / audio_filename
         shutil.move(str(wav_path), str(audio_dest))
 
-        speakers = await _match_voiceprints(audio_dest, utterances, speakers)
+        speakers, matched = await _match_voiceprints(audio_dest, utterances, speakers)
 
         transcript = {
             "id": transcript_id,
@@ -189,6 +189,8 @@ async def transcribe(file: UploadFile = File(...), keep_video: bool = Form(False
             "full_text": generate_full_text(utterances, speakers),
             "audio_file": audio_filename,
         }
+        if matched:
+            transcript["pending_speaker_matches"] = matched
 
         if keep_video and ext in VIDEO_EXTENSIONS and upload_path.exists():
             video_filename = f"{transcript_id}{ext}"
@@ -276,7 +278,7 @@ async def transcribe_multi(files: List[UploadFile] = File(...), keep_video: bool
         audio_dest = AUDIO_DIR / audio_filename
         shutil.move(str(combined_wav), str(audio_dest))
 
-        speakers = await _match_voiceprints(audio_dest, utterances, speakers)
+        speakers, matched = await _match_voiceprints(audio_dest, utterances, speakers)
 
         transcript = {
             "id": transcript_id,
@@ -290,6 +292,8 @@ async def transcribe_multi(files: List[UploadFile] = File(...), keep_video: bool
             "full_text": generate_full_text(utterances, speakers),
             "audio_file": audio_filename,
         }
+        if matched:
+            transcript["pending_speaker_matches"] = matched
 
         # Concatenate videos if requested
         if keep_video:
@@ -358,6 +362,42 @@ async def rename_transcript(transcript_id: str, request: Request):
     transcript["filename"] = name
     save_transcript(transcript)
     return {"filename": name}
+
+
+@app.post("/api/transcripts/{transcript_id}/confirm-speaker")
+async def confirm_speaker_match(transcript_id: str, request: Request):
+    """Confirm an auto-matched speaker — removes from pending, blends voiceprint."""
+    body = await request.json()
+    speaker_key = body.get("speaker_key")
+    transcript = load_transcript(transcript_id)
+    pending = transcript.get("pending_speaker_matches", {})
+    pending.pop(speaker_key, None)
+    if pending:
+        transcript["pending_speaker_matches"] = pending
+    else:
+        transcript.pop("pending_speaker_matches", None)
+    save_transcript(transcript)
+    return {"ok": True}
+
+
+@app.post("/api/transcripts/{transcript_id}/reject-speaker")
+async def reject_speaker_match(transcript_id: str, request: Request):
+    """Reject an auto-matched speaker — resets name to original Speaker N label."""
+    body = await request.json()
+    speaker_key = body.get("speaker_key")
+    transcript = load_transcript(transcript_id)
+    pending = transcript.get("pending_speaker_matches", {})
+    pending.pop(speaker_key, None)
+    if pending:
+        transcript["pending_speaker_matches"] = pending
+    else:
+        transcript.pop("pending_speaker_matches", None)
+    # Reset speaker name back to original key
+    transcript["speakers"][speaker_key] = speaker_key
+    # Regenerate full text with reset name
+    transcript["full_text"] = generate_full_text(transcript["utterances"], transcript["speakers"])
+    save_transcript(transcript)
+    return {"ok": True, "speakers": transcript["speakers"]}
 
 
 @app.patch("/api/transcripts/{transcript_id}/date")
@@ -1106,4 +1146,4 @@ async def serve_spa(full_path: str):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=8000, timeout_keep_alive=300, h11_max_incomplete_event_size=None)
