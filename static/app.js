@@ -860,6 +860,71 @@ function renderSpeakers() {
       </div>
     `;
   }).join('');
+
+  renderSpeakerConfirmBanner();
+}
+
+function renderSpeakerConfirmBanner() {
+  const banner = document.getElementById('speaker-confirm-banner');
+  const pending = currentTranscript.pending_speaker_matches || {};
+  const entries = Object.entries(pending);
+
+  if (!entries.length) {
+    banner.style.display = 'none';
+    return;
+  }
+
+  banner.style.display = '';
+  banner.innerHTML = `
+    <div class="speaker-confirm-title">
+      <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/></svg>
+      We think we recognized these speakers — confirm?
+    </div>
+    <div class="speaker-confirm-rows">
+      ${entries.map(([key, name]) => `
+        <div class="speaker-confirm-row" id="scr-${escapeAttr(key)}">
+          <span class="speaker-confirm-label">${escapeHtml(key)} → <strong>${escapeHtml(name)}</strong></span>
+          <div class="speaker-confirm-actions">
+            <button class="btn-confirm-yes" onclick="confirmSpeakerMatch('${escapeAttr(key)}', true)">✓ Correct</button>
+            <button class="btn-confirm-no" onclick="confirmSpeakerMatch('${escapeAttr(key)}', false)">✗ Wrong</button>
+          </div>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
+async function confirmSpeakerMatch(speakerKey, isCorrect) {
+  const endpoint = isCorrect ? 'confirm-speaker' : 'reject-speaker';
+  try {
+    const res = await fetch(`/api/transcripts/${currentTranscript.id}/${endpoint}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ speaker_key: speakerKey })
+    });
+    const data = await res.json();
+
+    // Remove from pending
+    delete currentTranscript.pending_speaker_matches[speakerKey];
+
+    if (!isCorrect && data.speakers) {
+      // Reset speaker name in local state and re-render
+      currentTranscript.speakers = data.speakers;
+      renderSpeakers();
+      renderUtterances();
+    } else {
+      // Just remove the row
+      const row = document.getElementById(`scr-${speakerKey}`);
+      if (row) row.remove();
+      if (!Object.keys(currentTranscript.pending_speaker_matches).length) {
+        document.getElementById('speaker-confirm-banner').style.display = 'none';
+      }
+    }
+
+    toast(isCorrect ? 'Speaker confirmed' : 'Speaker reset — rename to correct name', isCorrect ? 'success' : 'info');
+  } catch {
+    toast('Failed to update speaker', 'error');
+  }
 }
 
 let bookmarkFilterActive = false;

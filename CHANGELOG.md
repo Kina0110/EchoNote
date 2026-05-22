@@ -1,6 +1,18 @@
 # Changelog
 
-## 2026-04-05 (latest)
+## 2026-05-16 (latest)
+
+### Speaker Match Confirmation
+- After transcription, a banner appears when speakers are auto-matched via voiceprints — confirm to keep the name, or reject to reset to "Speaker N"
+- Rejected matches reset the speaker name and regenerate the full text
+- `pending_speaker_matches` stored in transcript JSON to persist across page loads
+- New API endpoints: `POST /api/transcripts/:id/confirm-speaker`, `POST /api/transcripts/:id/reject-speaker`
+
+### Reliability
+- Deepgram client now has a 10-minute timeout for long audio files (was no timeout)
+- Uvicorn keep-alive tuned: `timeout_keep_alive=300`, `h11_max_incomplete_event_size=None` to handle large uploads
+
+## 2026-04-05
 
 ### Voiceprint Management & Smarter Merging
 - Settings > Voiceprints: view and delete any saved voice profile
