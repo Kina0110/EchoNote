@@ -1,6 +1,6 @@
 # Changelog
 
-## 2026-05-16 (latest)
+## 2026-05-21 (latest)
 
 ### Speaker Match Confirmation
 - After transcription, a banner appears when speakers are auto-matched via voiceprints — confirm to keep the name, or reject to reset to "Speaker N"
